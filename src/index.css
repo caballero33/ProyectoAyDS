@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* Colores principales */
+  --primary: #3b82f6; /* azul */
+  --primary-foreground: #ffffff;
+  --accent: #fbbf24; /* amarillo */
+  --accent-foreground: #1f2937;
+
+  /* Neutros */
+  --background: #f9fafb;
+  --foreground: #111827;
+  --border: #e5e7eb;
+  --input: #f3f4f6;
+  --muted: #e5e7eb;
+  --muted-foreground: #6b7280;
+
+  /* Secundario */
+  --secondary: #d1d5db;
+  --secondary-foreground: #111827;
+
+  /* Destructivo */
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+
+  /* Otros */
+  --ring: #3b82f6;
+  --radius: 0.5rem;
+}
+
+.dark {
+  --background: #111827;
+  --foreground: #f9fafb;
+  --border: #374151;
+  --muted: #1f2937;
+  --muted-foreground: #9ca3af;
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --accent: #f59e0b;
+  --accent-foreground: #111827;
+  --secondary: #1f2937;
+  --secondary-foreground: #f9fafb;
+  --destructive: #b91c1c;
+  --destructive-foreground: #ffffff;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-none;
+    border-color: var(--border);
+  }
+
+  body {
+    @apply bg-[var(--background)] text-[var(--foreground)] antialiased;
+    font-family: 'Inter', sans-serif;
+  }
+
+  button {
+    @apply cursor-pointer;
+  }
+
+  input, select, textarea {
+    @apply bg-[var(--input)] text-[var(--foreground)] rounded border border-[var(--border)] px-3 py-2;
+  }
+}
