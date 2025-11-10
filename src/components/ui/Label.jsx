@@ -1,8 +1,10 @@
 import React from "react"
+import { cn } from "../../lib/utils"
+import "./label.css"
 
 export function Label({ children, className = "", ...props }) {
   return (
-    <label className={`block text-sm font-medium mb-1 ${className}`} {...props}>
+    <label className={cn("ms-label", className)} {...props}>
       {children}
     </label>
   )

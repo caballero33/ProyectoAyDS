@@ -2,51 +2,76 @@
 @tailwind components;
 @tailwind utilities;
 @import "tw-animate-css";
+@import url("https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap");
 
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* Colores principales */
-  --primary: #3b82f6; /* azul */
+  /* Aura Minosa palette */
+  --primary: #1e2c5c;
   --primary-foreground: #ffffff;
-  --accent: #fbbf24; /* amarillo */
-  --accent-foreground: #1f2937;
+  --primary-soft: #2b3f74;
 
-  /* Neutros */
-  --background: #f9fafb;
-  --foreground: #111827;
-  --border: #e5e7eb;
-  --input: #f3f4f6;
-  --muted: #e5e7eb;
-  --muted-foreground: #6b7280;
+  --accent: #f25c4a;
+  --accent-foreground: #ffffff;
+  --accent-soft: #f38e78;
 
-  /* Secundario */
-  --secondary: #d1d5db;
-  --secondary-foreground: #111827;
+  /* Superficies */
+  --background: #f5f8fb;
+  --foreground: #1b1f2b;
+  --surface: #ffffff;
+  --surface-foreground: #1b1f2b;
+  --card: var(--surface);
+  --card-foreground: var(--surface-foreground);
 
-  /* Destructivo */
-  --destructive: #dc2626;
+  --muted: #d6dcea;
+  --muted-foreground: #5c657d;
+
+  --border: #c5cfe3;
+  --input: #eef2f9;
+
+  /* Tonos de Angie */
+  --secondary: #304174;
+  --secondary-foreground: #ffffff;
+  --success: #2fa887;
+  --warning: #f3a43a;
+  --info: #3f70d8;
+
+  --destructive: #c43d3d;
   --destructive-foreground: #ffffff;
 
-  /* Otros */
-  --ring: #3b82f6;
-  --radius: 0.5rem;
+  /* Effects */
+  --ring: var(--accent);
+  --shadow-soft: 0 12px 32px rgba(30, 44, 92, 0.08);
+  --radius: 0.625rem;
 }
 
 .dark {
-  --background: #111827;
-  --foreground: #f9fafb;
-  --border: #374151;
-  --muted: #1f2937;
-  --muted-foreground: #9ca3af;
-  --primary: #2563eb;
-  --primary-foreground: #ffffff;
-  --accent: #f59e0b;
-  --accent-foreground: #111827;
-  --secondary: #1f2937;
-  --secondary-foreground: #f9fafb;
-  --destructive: #b91c1c;
-  --destructive-foreground: #ffffff;
+  --background: #0f172a;
+  --foreground: #f5f8fb;
+  --surface: #141f3b;
+  --surface-foreground: #eef2f9;
+  --card: var(--surface);
+  --card-foreground: var(--surface-foreground);
+  --border: #27345a;
+  --muted: #1b2746;
+  --muted-foreground: #98a4c5;
+
+  --primary: #f5f8fb;
+  --primary-foreground: #1e2c5c;
+  --primary-soft: #d6dcea;
+
+  --accent: #f38e78;
+  --accent-foreground: #1b1f2b;
+  --accent-soft: #f9b3a5;
+
+  --secondary: #23325a;
+  --secondary-foreground: #f5f8fb;
+
+  --destructive: #f16969;
+  --destructive-foreground: #141f3b;
+
+  --ring: #f38e78;
 }
 
 @layer base {
@@ -57,14 +82,29 @@
 
   body {
     @apply bg-[var(--background)] text-[var(--foreground)] antialiased;
-    font-family: 'Inter', sans-serif;
+    font-family: "Source Sans 3", "Montserrat", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: "Montserrat", "Source Sans 3", "Segoe UI", sans-serif;
+    color: var(--primary);
   }
 
   button {
     @apply cursor-pointer;
   }
 
-  input, select, textarea {
-    @apply bg-[var(--input)] text-[var(--foreground)] rounded border border-[var(--border)] px-3 py-2;
+  input,
+  select,
+  textarea {
+    @apply bg-[var(--surface)] text-[var(--foreground)] rounded border border-[var(--border)] px-3 py-2;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  input:focus,
+  select:focus,
+  textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
   }
 }

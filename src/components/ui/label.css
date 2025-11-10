@@ -1,0 +1,14 @@
+.ms-label {
+  display: block;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--muted-foreground);
+  margin-bottom: 0.35rem;
+  font-weight: 600;
+}
+
+.ms-label strong {
+  color: var(--foreground);
+}
+

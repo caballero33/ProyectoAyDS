@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react"
 import { collection, getDocs, orderBy, query } from "firebase/firestore"
+import { Input } from "../../../../../components/ui/Input"
 import { Button } from "../../../../../components/ui/Button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../../../../components/ui/Table"
-import { Input } from "../../../../../components/ui/Input"
-import { Package, RefreshCcw } from "lucide-react"
+import { Calendar, MapPin, RefreshCcw } from "lucide-react"
 import { db } from "../../../../../lib/firebase"
 
 const ITEMS_PER_PAGE = 10
@@ -13,45 +13,38 @@ const formatNumber = (value) => {
   return Number(value).toLocaleString("es-PE", { maximumFractionDigits: 2 })
 }
 
-export default function ShippingReports() {
-  const [currentPage, setCurrentPage] = useState(1)
-  const [filterProduct, setFilterProduct] = useState("")
+export default function AnalisisSuelosReports() {
   const [records, setRecords] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [filterZone, setFilterZone] = useState("")
+  const [filterDate, setFilterDate] = useState("")
+  const [currentPage, setCurrentPage] = useState(1)
 
   useEffect(() => {
     const fetchRecords = async () => {
       setLoading(true)
       setError(null)
-    try {
-      const snapshot = await getDocs(query(collection(db, "plant_runs"), orderBy("fecha", "desc")))
+      try {
+        const snapshot = await getDocs(query(collection(db, "soil_analyses"), orderBy("fecha", "desc")))
         const rows = snapshot.docs.map((doc) => {
           const data = doc.data()
-        const rawMaterial = data.material ?? ""
-        const cantidadKg =
-          data.cantidad_kg ??
-          data.cantidad ??
-          (typeof data.cantidad_t === "number" ? data.cantidad_t * 1000 : Number(data.cantidad_t ?? NaN))
           return {
             id: doc.id,
-            lote: data.lote ?? "",
+            zona: data.zona ?? "",
             fecha: data.fecha ?? "",
-          producto:
-            rawMaterial === "oro"
-              ? "Concentrado de Oro"
-              : rawMaterial === "cobre"
-              ? "Concentrado de Cobre"
-              : rawMaterial || data.producto || "",
-          cantidad: typeof cantidadKg === "number" && !Number.isNaN(cantidadKg) ? cantidadKg : null,
-          pureza: data.pureza_final ?? null,
+            analista: data.analista ?? "",
+            resultadoPh: data.resultado_ph ?? data.ph ?? null,
+            pureza: data.pureza ?? null,
+            humedad: data.humedad ?? null,
+            zonaApta: data.zona_apta === true || data.zona_apta === "si",
             observaciones: data.observaciones ?? "",
           }
         })
         setRecords(rows)
       } catch (err) {
         console.error(err)
-        setError("No se pudieron obtener los registros de despacho.")
+        setError("No se pudieron obtener los análisis de suelo.")
       } finally {
         setLoading(false)
       }
@@ -61,34 +54,54 @@ export default function ShippingReports() {
   }, [])
 
   const filteredData = useMemo(() => {
-    return records.filter((item) =>
-      filterProduct ? item.producto.toLowerCase().includes(filterProduct.toLowerCase()) : true
-    )
-  }, [records, filterProduct])
+    return records.filter((item) => {
+      const matchesZone = filterZone ? item.zona.toLowerCase().includes(filterZone.toLowerCase()) : true
+      const matchesDate = filterDate ? (item.fecha ?? "").startsWith(filterDate) : true
+      return matchesZone && matchesDate
+    })
+  }, [records, filterZone, filterDate])
 
   const totalPages = Math.max(1, Math.ceil(filteredData.length / ITEMS_PER_PAGE))
   const paginatedData = filteredData.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE)
 
-  const totalPureza = filteredData.reduce((acc, item) => acc + Number(item.pureza || 0), 0) / (filteredData.length || 1)
-  const totalCantidad = filteredData.reduce((acc, item) => acc + Number(item.cantidad || 0), 0)
+  const aptCount = filteredData.filter((item) => item.zonaApta).length
+  const averagePh = filteredData.length
+    ? filteredData.reduce((acc, item) => acc + Number(item.resultadoPh || 0), 0) / filteredData.length
+    : 0
+  const averageHumidity = filteredData.length
+    ? filteredData.reduce((acc, item) => acc + Number(item.humedad || 0), 0) / filteredData.length
+    : 0
 
   const resetFilters = () => {
-    setFilterProduct("")
+    setFilterZone("")
+    setFilterDate("")
     setCurrentPage(1)
   }
 
   return (
     <section className="dashboard-report">
       <div className="dashboard-report__filters">
-        <span className="dashboard-report__filter-chip">
-          <Package size={16} />
-          <span>Producto</span>
+        <span className="inline-flex items-center gap-2 dashboard-report__filter-chip">
+          <MapPin size={16} />
+          <span>Zona</span>
           <Input
-            type="text"
-            placeholder="Concentrado..."
-            value={filterProduct}
+            placeholder="Ej: Zona norte"
+            value={filterZone}
             onChange={(e) => {
-              setFilterProduct(e.target.value)
+              setFilterZone(e.target.value)
+              setCurrentPage(1)
+            }}
+            className="dashboard-form__input"
+          />
+        </span>
+        <span className="inline-flex items-center gap-2 dashboard-report__filter-chip">
+          <Calendar size={16} />
+          <span>Fecha</span>
+          <Input
+            type="date"
+            value={filterDate}
+            onChange={(e) => {
+              setFilterDate(e.target.value)
               setCurrentPage(1)
             }}
             className="dashboard-form__input"
@@ -103,59 +116,71 @@ export default function ShippingReports() {
       <div className="dashboard-report__container">
         <header className="dashboard-report__header">
           <div className="dashboard-report__title-block">
-            <h2 className="dashboard-report__title">Reporte de material listo para la venta</h2>
+            <h2 className="dashboard-report__title">Reporte de resultados de análisis de suelo</h2>
           </div>
-          <span className="dashboard-report__badge inline-flex items-center gap-2">
-            <Package size={18} />
-            Planta
-          </span>
+          <span className="dashboard-report__badge">Exploración</span>
         </header>
 
         <div className="dashboard-report__metrics">
           <div className="dashboard-report__metric">
-            <span className="dashboard-report__metric-label">Lotes registrados</span>
+            <span className="dashboard-report__metric-label">Registros filtrados</span>
             <span className="dashboard-report__metric-value">{filteredData.length}</span>
-            <span>Registros obtenidos desde Firestore</span>
+            <span>Analíticas obtenidas desde Firestore</span>
           </div>
           <div className="dashboard-report__metric dashboard-report__metric--alt">
-            <span className="dashboard-report__metric-label">Pureza promedio</span>
-            <span className="dashboard-report__metric-value">{formatNumber(totalPureza)}%</span>
-            <span>Promedio de los lotes filtrados</span>
+            <span className="dashboard-report__metric-label">Zonas aptas</span>
+            <span className="dashboard-report__metric-value">{aptCount}</span>
+            <span>
+              {filteredData.length === 0
+                ? "Sin registros"
+                : `${Math.round((aptCount / filteredData.length) * 100)}% del total`}
+            </span>
           </div>
           <div className="dashboard-report__metric">
-            <span className="dashboard-report__metric-label">Cantidad total (kg)</span>
-            <span className="dashboard-report__metric-value">{formatNumber(totalCantidad)}</span>
-            <span>Suma de la columna cantidad</span>
+            <span className="dashboard-report__metric-label">pH promedio</span>
+            <span className="dashboard-report__metric-value">{formatNumber(averagePh)}</span>
+            <span>Muestras filtradas</span>
+          </div>
+          <div className="dashboard-report__metric">
+            <span className="dashboard-report__metric-label">Humedad promedio</span>
+            <span className="dashboard-report__metric-value">{formatNumber(averageHumidity)}%</span>
+            <span>De la selección actual</span>
           </div>
         </div>
 
         <div className="dashboard-report__table">
-          {loading && <p className="text-sm text-muted-foreground">Cargando registros…</p>}
+          {loading && <p className="text-sm text-muted-foreground">Cargando resultados…</p>}
           {error && <p className="text-sm text-red-600">{error}</p>}
           {!loading && !error && filteredData.length === 0 && (
-            <p className="text-sm text-muted-foreground">No hay despachos que coincidan con los filtros.</p>
+            <p className="text-sm text-muted-foreground">No se encontraron análisis que coincidan con los filtros.</p>
           )}
 
           {!loading && !error && filteredData.length > 0 && (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Lote</TableHead>
+                  <TableHead>ID</TableHead>
+                  <TableHead>Zona</TableHead>
                   <TableHead>Fecha</TableHead>
-                  <TableHead>Producto</TableHead>
-                  <TableHead>Cantidad (kg)</TableHead>
+                  <TableHead>Analista</TableHead>
+                  <TableHead>Resultado pH</TableHead>
                   <TableHead>Pureza (%)</TableHead>
+                  <TableHead>Humedad (%)</TableHead>
+                  <TableHead>Zona apta</TableHead>
                   <TableHead>Observaciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {paginatedData.map((row) => (
+                {paginatedData.map((row, index) => (
                   <TableRow key={row.id}>
-                    <TableCell>{row.lote || "—"}</TableCell>
+                    <TableCell>{(currentPage - 1) * ITEMS_PER_PAGE + index + 1}</TableCell>
+                    <TableCell>{row.zona || "—"}</TableCell>
                     <TableCell>{row.fecha || "—"}</TableCell>
-                    <TableCell>{row.producto || "—"}</TableCell>
-                    <TableCell>{formatNumber(row.cantidad)}</TableCell>
-                    <TableCell>{formatNumber(row.pureza)}%</TableCell>
+                    <TableCell>{row.analista || "—"}</TableCell>
+                    <TableCell>{formatNumber(row.resultadoPh)}</TableCell>
+                    <TableCell>{formatNumber(row.pureza)}</TableCell>
+                    <TableCell>{formatNumber(row.humedad)}</TableCell>
+                    <TableCell>{row.zonaApta ? "Sí" : "No"}</TableCell>
                     <TableCell>{row.observaciones || "—"}</TableCell>
                   </TableRow>
                 ))}

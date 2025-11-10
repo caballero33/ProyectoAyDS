@@ -1,129 +1,176 @@
 import { useState } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../../components/ui/Card"
+import { addDoc, collection, serverTimestamp } from "firebase/firestore"
 import { Input } from "../../../../../components/ui/Input"
-import { Label } from "../../../../../components/ui/Label"
 import { Button } from "../../../../../components/ui/Button"
+import { db } from "../../../../../lib/firebase"
+
+const initialForm = {
+  fecha: "",
+  lote: "",
+  producto: "Concentrado de Oro",
+  cantidad: "",
+  pureza: "",
+  clienteDestino: "",
+  transportista: "",
+  observaciones: "",
+}
 
 export default function ShippingForm() {
-  const [formData, setFormData] = useState({
-    fecha: "",
-    lote: "",
-    producto: "Concentrado de Oro",
-    cantidad: "",
-    pureza: "",
-    clienteDestino: "",
-    transportista: "",
-    observaciones: "",
-  })
+  const [formData, setFormData] = useState(initialForm)
+  const [submitting, setSubmitting] = useState(false)
+  const [feedback, setFeedback] = useState({ type: null, message: "" })
 
   const handleChange = (e) => {
     const { name, value } = e.target
     setFormData((prev) => ({ ...prev, [name]: value }))
   }
 
-  const handleSubmit = (e) => {
+  const resetForm = () => {
+    setFormData(initialForm)
+  }
+
+  const handleSubmit = async (e) => {
     e.preventDefault()
-    console.log("[v0] Datos de despacho:", formData)
-    setFormData({
-      fecha: "",
-      lote: "",
-      producto: "Concentrado de Oro",
-      cantidad: "",
-      pureza: "",
-      clienteDestino: "",
-      transportista: "",
-      observaciones: "",
-    })
+    setSubmitting(true)
+    setFeedback({ type: null, message: "" })
+
+    try {
+      await addDoc(collection(db, "shipping_records"), {
+        fecha: formData.fecha,
+        lote: formData.lote,
+        producto: formData.producto,
+        cantidad_kg: Number(formData.cantidad),
+        pureza_final: Number(formData.pureza),
+        cliente_destino: formData.clienteDestino,
+        transportista: formData.transportista,
+        observaciones: formData.observaciones,
+        created_at: serverTimestamp(),
+      })
+
+      setFeedback({ type: "success", message: "Registro de despacho guardado correctamente." })
+      resetForm()
+    } catch (err) {
+      console.error(err)
+      setFeedback({ type: "error", message: "No se pudo guardar el despacho. Intenta nuevamente." })
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
-    <main className="flex-1 overflow-auto p-8 bg-background">
-      <Card className="border-border max-w-2xl">
-        <CardHeader className="bg-primary text-primary-foreground">
-          <CardTitle className="text-2xl">Ingreso de Datos - Despacho</CardTitle>
-          <CardDescription className="text-primary-foreground/70">
-            Registra material despachado e inventario
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="pt-6">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="fecha">Fecha de Despacho</Label>
-                <Input id="fecha" name="fecha" type="date" value={formData.fecha} onChange={handleChange} required />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="lote">Número de Lote</Label>
-                <Input
-                  id="lote"
-                  name="lote"
-                  placeholder="Ej: LOTE-001"
-                  value={formData.lote}
-                  onChange={handleChange}
-                  required
-                />
-              </div>
-            </div>
+    <section className="dashboard-form">
+      <div className="dashboard-form__header">
+        <p className="dashboard-form__eyebrow">Ingreso de datos</p>
+        <h1 className="dashboard-form__title">Despacho</h1>
+        <p className="dashboard-form__subtitle">Registra los lotes listos para la venta y su trazabilidad logística.</p>
+      </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="producto">Producto</Label>
-                <select
-                  id="producto"
-                  name="producto"
-                  value={formData.producto}
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
-                  required
-                >
-                  <option value="Concentrado de Oro">Concentrado de Oro</option>
-                  <option value="Concentrado de Cobre">Concentrado de Cobre</option>
-                </select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="cantidad">Cantidad (KG)</Label>
-                <Input
-                  id="cantidad"
-                  name="cantidad"
-                  type="number"
-                  step="0.1"
-                  placeholder="Ej: 150.5"
-                  value={formData.cantidad}
-                  onChange={handleChange}
-                  required
-                />
-              </div>
+      <div className="dashboard-form__card">
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="dashboard-form__grid">
+            <div>
+              <label htmlFor="fecha" className="dashboard-form__label">
+                Fecha de despacho
+              </label>
+              <Input
+                id="fecha"
+                name="fecha"
+                type="date"
+                value={formData.fecha}
+                onChange={handleChange}
+                required
+                className="dashboard-form__input"
+              />
             </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="pureza">Pureza Final (%)</Label>
-                <Input
-                  id="pureza"
-                  name="pureza"
-                  type="number"
-                  step="0.01"
-                  placeholder="Ej: 96.44"
-                  value={formData.pureza}
-                  onChange={handleChange}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="clienteDestino">Cliente/Destino</Label>
-                <Input
-                  id="clienteDestino"
-                  name="clienteDestino"
-                  placeholder="Ej: Empresa ABC S.A."
-                  value={formData.clienteDestino}
-                  onChange={handleChange}
-                  required
-                />
-              </div>
+            <div>
+              <label htmlFor="lote" className="dashboard-form__label">
+                Número de lote
+              </label>
+              <Input
+                id="lote"
+                name="lote"
+                placeholder="Ej: LOTE-001"
+                value={formData.lote}
+                onChange={handleChange}
+                required
+                className="dashboard-form__input"
+              />
             </div>
+          </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="transportista">Transportista</Label>
+          <div className="dashboard-form__grid">
+            <div>
+              <label htmlFor="producto" className="dashboard-form__label">
+                Producto
+              </label>
+              <select
+                id="producto"
+                name="producto"
+                value={formData.producto}
+                onChange={handleChange}
+                className="dashboard-form__input"
+                required
+              >
+                <option value="Concentrado de Oro">Concentrado de Oro</option>
+                <option value="Concentrado de Cobre">Concentrado de Cobre</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="cantidad" className="dashboard-form__label">
+                Cantidad (kg)
+              </label>
+              <Input
+                id="cantidad"
+                name="cantidad"
+                type="number"
+                step="0.1"
+                placeholder="Ej: 150.5"
+                value={formData.cantidad}
+                onChange={handleChange}
+                required
+                className="dashboard-form__input"
+              />
+            </div>
+          </div>
+
+          <div className="dashboard-form__grid">
+            <div>
+              <label htmlFor="pureza" className="dashboard-form__label">
+                Pureza final (%)
+              </label>
+              <Input
+                id="pureza"
+                name="pureza"
+                type="number"
+                step="0.01"
+                placeholder="Ej: 96.44"
+                value={formData.pureza}
+                onChange={handleChange}
+                required
+                className="dashboard-form__input"
+              />
+            </div>
+            <div>
+              <label htmlFor="clienteDestino" className="dashboard-form__label">
+                Cliente / destino
+              </label>
+              <Input
+                id="clienteDestino"
+                name="clienteDestino"
+                placeholder="Ej: Empresa ABC S.A."
+                value={formData.clienteDestino}
+                onChange={handleChange}
+                required
+                className="dashboard-form__input"
+              />
+            </div>
+          </div>
+
+          <div className="dashboard-form__grid">
+            <div>
+              <label htmlFor="transportista" className="dashboard-form__label">
+                Transportista
+              </label>
               <Input
                 id="transportista"
                 name="transportista"
@@ -131,48 +178,42 @@ export default function ShippingForm() {
                 value={formData.transportista}
                 onChange={handleChange}
                 required
+                className="dashboard-form__input"
               />
             </div>
+          </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="observaciones">Observaciones</Label>
-              <textarea
-                id="observaciones"
-                name="observaciones"
-                placeholder="Observaciones adicionales..."
-                value={formData.observaciones}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
-                rows="4"
-              />
-            </div>
+          <div>
+            <label htmlFor="observaciones" className="dashboard-form__label">
+              Observaciones
+            </label>
+            <textarea
+              id="observaciones"
+              name="observaciones"
+              placeholder="Observaciones adicionales..."
+              value={formData.observaciones}
+              onChange={handleChange}
+              className="dashboard-form__input"
+              rows={4}
+            />
+          </div>
 
-            <div className="flex gap-4 pt-4">
-              <Button type="submit" className="bg-primary hover:bg-primary/90 text-primary-foreground">
-                Guardar Datos
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() =>
-                  setFormData({
-                    fecha: "",
-                    lote: "",
-                    producto: "Concentrado de Oro",
-                    cantidad: "",
-                    pureza: "",
-                    clienteDestino: "",
-                    transportista: "",
-                    observaciones: "",
-                  })
-                }
-              >
-                Limpiar
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-    </main>
+          <div className="dashboard-form__actions">
+            <Button type="submit" variant="accent" disabled={submitting}>
+              {submitting ? "Guardando..." : "Guardar datos"}
+            </Button>
+            <Button type="button" variant="outline" onClick={resetForm}>
+              Limpiar
+            </Button>
+          </div>
+
+          {feedback.message && (
+            <p className={`text-sm ${feedback.type === "error" ? "text-red-600" : "text-green-600"}`}>
+              {feedback.message}
+            </p>
+          )}
+        </form>
+      </div>
+    </section>
   )
 }
