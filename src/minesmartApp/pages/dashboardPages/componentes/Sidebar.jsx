@@ -1,95 +1,147 @@
-import { ChevronDown } from "lucide-react"
-import { useState } from "react"
+import { ChevronDown, ClipboardList, Factory, FlaskConical, Layers, PieChart, Route, Truck } from "lucide-react"
+import { useMemo, useState } from "react"
 
-const modules = [
-  { id: "soil", label: "Análisis de suelos", hasSubModules: true },
-  { id: "extraction", label: "Extracción", hasSubModules: true },
-  { id: "lab", label: "Laboratorio", hasSubModules: true },
-  { id: "plant", label: "Planta", hasSubModules: true },
-  { id: "shipping", label: "Despacho", hasSubModules: true },
-  { id: "supplies", label: "Insumos", hasSubModules: true },
-  { id: "management", label: "Gerencia", hasSubModules: true },
+const navigationBlueprint = [
+  {
+    title: "Operaciones",
+    items: [
+      {
+        id: "soil",
+        label: "Exploración y suelos",
+        icon: Layers,
+        children: [
+          { id: "soil-data", label: "Ingreso de datos" },
+          { id: "soil-reports", label: "Reportes de análisis" },
+        ],
+      },
+      {
+        id: "extraction",
+        label: "Extracción",
+        icon: Route,
+        children: [
+          { id: "extraction-data", label: "Registro de jornada" },
+        ],
+      },
+      {
+        id: "lab",
+        label: "Laboratorio",
+        icon: FlaskConical,
+        children: [{ id: "lab-data", label: "Resultados de análisis" }],
+      },
+      {
+        id: "plant",
+        label: "Planta",
+        icon: Factory,
+        children: [
+          { id: "plant-data", label: "Ingreso de producción" },
+          { id: "plant-reports", label: "Reportes operativos" },
+        ],
+      },
+    ],
+  },
+  {
+    title: "Logística y soporte",
+    items: [
+      {
+        id: "shipping",
+        label: "Despacho",
+        icon: Truck,
+        children: [{ id: "shipping-reports", label: "Estado de despachos" }],
+      },
+      {
+        id: "supplies",
+        label: "Insumos",
+        icon: ClipboardList,
+        children: [{ id: "supplies", label: "Inventario general" }],
+      },
+    ],
+  },
+  {
+    title: "Dirección",
+    items: [
+      {
+        id: "management",
+        label: "Gerencia",
+        icon: PieChart,
+        children: [{ id: "management-reports", label: "Reportes sintetizados" }],
+      },
+    ],
+  },
 ]
 
 export default function Sidebar({ activeModule, onSelectModule }) {
-  const [expanded, setExpanded] = useState(new Set(["soil"]))
+  const [expanded, setExpanded] = useState(new Set(["soil", "extraction"]))
+
+  const navigation = useMemo(() => navigationBlueprint, [])
 
   const toggleExpand = (id) => {
-    const newExpanded = new Set(expanded)
-    if (newExpanded.has(id)) {
-      newExpanded.delete(id)
+    const nextExpanded = new Set(expanded)
+    if (nextExpanded.has(id)) {
+      nextExpanded.delete(id)
     } else {
-      newExpanded.add(id)
+      nextExpanded.add(id)
     }
-    setExpanded(newExpanded)
+    setExpanded(nextExpanded)
   }
 
-  const getSubModules = (moduleId) => {
-    switch (moduleId) {
-      case "soil":
-        return [{ id: "soil-data", label: "Ingreso de datos" }]
-      case "extraction":
-        return [
-          { id: "extraction-data", label: "Ingreso de datos" },
-          { id: "extraction-reports", label: "Reportes" },
-        ]
-      case "lab":
-        return [{ id: "lab-data", label: "Ingreso de datos" }]
-      case "plant":
-        return [
-          { id: "plant-data", label: "Ingreso de datos" },
-          { id: "plant-reports", label: "Reportes" },
-        ]
-      case "shipping":
-        return [{ id: "shipping-reports", label: "Reportes" }]
-      case "supplies":
-        return [{ id: "supplies", label: "Inventario" }]
-      case "management":
-        return [{ id: "management-reports", label: "Reportes Sintetizados" }]
-      default:
-        return []
-    }
-  }
+  const isActiveParent = (parentId) => activeModule?.startsWith(parentId)
 
   return (
-    <aside className="w-56 bg-primary text-primary-foreground p-6 overflow-y-auto">
-      <nav className="space-y-3">
-        {modules.map((module) => (
-          <div key={module.id}>
-            <button
-              onClick={() => toggleExpand(module.id)}
-              className={`w-full px-4 py-3 rounded-full text-sm font-medium transition-all flex items-center justify-between ${
-                activeModule === module.id || activeModule?.startsWith(module.id + "-")
-                  ? "bg-accent text-accent-foreground"
-                  : "bg-primary-foreground/15 hover:bg-primary-foreground/25"
-              }`}
-            >
-              <span>{module.label}</span>
-              {module.hasSubModules && (
-                <ChevronDown
-                  size={18}
-                  className={`transition-transform ${expanded.has(module.id) ? "rotate-180" : ""}`}
-                />
-              )}
-            </button>
+    <aside className="dashboard-sidebar">
+      <div className="dashboard-sidebar__panel">
+        <p className="dashboard-sidebar__title">Panel</p>
+        <h2 className="dashboard-hero__title" style={{ fontSize: "1.25rem" }}>
+          Gestión integral de operaciones
+        </h2>
+        <p className="dashboard-hero__copy" style={{ fontSize: "0.86rem", marginTop: "0.65rem" }}>
+          Monitorea la cadena productiva y toma acciones preventivas desde un único lugar.
+        </p>
+      </div>
 
-            {module.hasSubModules && expanded.has(module.id) && (
-              <div className="ml-4 mt-2 space-y-2">
-                {getSubModules(module.id).map((subModule) => (
-                  <button
-                    key={subModule.id}
-                    onClick={() => onSelectModule(subModule.id)}
-                    className={`w-full px-4 py-2 rounded-full text-sm font-medium transition-all ${
-                      activeModule === subModule.id
-                        ? "bg-accent text-accent-foreground"
-                        : "bg-accent/20 text-accent-foreground hover:bg-accent/30"
-                    }`}
-                  >
-                    {subModule.label}
+      <nav className="dashboard-sidebar__nav">
+        {navigation.map((section) => (
+          <div key={section.title} className="dashboard-sidebar__group">
+            <p className="dashboard-sidebar__title">{section.title}</p>
+            {section.items.map((item) => {
+              const Icon = item.icon
+              const isOpen = expanded.has(item.id)
+              const isActive = isActiveParent(item.id)
+
+              return (
+                <div
+                  key={item.id}
+                  className={`dashboard-accordion ${isActive ? "dashboard-accordion--active" : ""} ${
+                    isOpen ? "dashboard-accordion--expanded" : ""
+                  }`}
+                >
+                  <button className="dashboard-accordion__trigger" onClick={() => toggleExpand(item.id)}>
+                    <span className="dashboard-accordion__trigger-left">
+                      <span className="dashboard-accordion__icon">
+                        <Icon size={18} />
+                      </span>
+                      {item.label}
+                    </span>
+                    <ChevronDown size={16} className="dashboard-accordion__chevron" />
                   </button>
-                ))}
-              </div>
-            )}
+
+                  {isOpen && item.children?.length > 0 && (
+                    <div className="dashboard-submenu">
+                      {item.children.map((child) => (
+                        <button
+                          key={child.id}
+                          onClick={() => onSelectModule(child.id)}
+                          className={`dashboard-submenu__button ${
+                            activeModule === child.id ? "dashboard-submenu__button--active" : ""
+                          }`}
+                        >
+                          {child.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         ))}
       </nav>

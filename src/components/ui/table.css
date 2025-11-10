@@ -1,0 +1,59 @@
+.ms-table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  border-radius: 1rem;
+  border: 1px solid rgba(30, 44, 92, 0.12);
+  background: var(--surface);
+  box-shadow: 0 16px 35px rgba(30, 44, 92, 0.08);
+}
+
+.ms-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+  color: var(--foreground);
+  min-width: 720px;
+}
+
+.ms-table thead tr {
+  background: linear-gradient(120deg, rgba(30, 44, 92, 0.9), rgba(30, 44, 92, 0.75));
+  color: #f5f8fb;
+}
+
+.ms-table th,
+.ms-table td {
+  padding: 0.9rem 1.1rem;
+  text-align: left;
+  border-bottom: 1px solid rgba(30, 44, 92, 0.08);
+}
+
+.ms-table tbody tr:nth-child(even) {
+  background: rgba(30, 44, 92, 0.035);
+}
+
+.ms-table tbody tr:hover {
+  background: rgba(242, 92, 74, 0.08);
+}
+
+.ms-table th {
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+}
+
+.ms-table td {
+  font-size: 0.9rem;
+}
+
+.ms-table__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+

@@ -1,4 +1,5 @@
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
+import { collection, getDocs, orderBy, query } from "firebase/firestore"
 import {
   BarChart,
   Bar,
@@ -13,275 +14,533 @@ import {
   ResponsiveContainer,
 } from "recharts"
 import { Button } from "../../../../../components/ui/Button"
+import { Printer } from "lucide-react"
+import { db } from "../../../../../lib/firebase"
+
+const COLORS = ["#2B5E7E", "#EC7E3A", "#22C55E", "#6366F1", "#14B8A6", "#F97316", "#A855F7"]
+
+const formatNumber = (value, opts = {}) => {
+  if (value === null || value === undefined || Number.isNaN(value)) return "—"
+  return Number(value).toLocaleString("es-PE", { maximumFractionDigits: 2, ...opts })
+}
+
+const formatDate = (value) => {
+  if (!value) return "—"
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    const safeDate = new Date(`${value}T00:00:00`)
+    return Number.isNaN(safeDate.getTime()) ? value : safeDate.toLocaleDateString("es-PE")
+  }
+  return date.toLocaleDateString("es-PE")
+}
+
+const periodLabel = (dates) => {
+  if (!dates.length) return "Periodo: sin registros"
+  const sorted = [...dates].sort()
+  const first = formatDate(sorted[0])
+  const last = formatDate(sorted[sorted.length - 1])
+  return first === last ? `Periodo: ${first}` : `Periodo: ${first} - ${last}`
+}
+
+const variationLabel = (current, previous) => {
+  if (!previous || Number.isNaN(previous) || previous === 0) return "Variación: —"
+  const variation = ((current - previous) / previous) * 100
+  const sign = variation >= 0 ? "+" : ""
+  return `Variación: ${sign}${variation.toFixed(1)}%`
+}
+
+const signedPercent = (current, previous) => {
+  if (!previous || Number.isNaN(previous) || previous === 0) return "—"
+  const variation = ((current - previous) / previous) * 100
+  const sign = variation >= 0 ? "+" : ""
+  return `${sign}${variation.toFixed(1)}%`
+}
+
+const parseDate = (value) => {
+  if (!value) return null
+  const date = new Date(value)
+  if (!Number.isNaN(date.getTime())) return date
+  const fallback = new Date(`${value}T00:00:00`)
+  return Number.isNaN(fallback.getTime()) ? null : fallback
+}
+
+const startOfDay = (value) => {
+  const date = new Date(value)
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+}
 
 export default function GerenciaReports() {
   const [reportType, setReportType] = useState("machinery")
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [data, setData] = useState({
+    runs: [],
+    failures: [],
+    labs: [],
+    consumptions: [],
+    supplies: [],
+  })
 
-  // Datos para Reporte de Fallas en Maquinaria
-  const machineryFailures = {
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        const [runsSnap, failuresSnap, labsSnap, consumptionsSnap, suppliesSnap] = await Promise.all([
+          getDocs(query(collection(db, "plant_runs"), orderBy("fecha", "desc"))),
+          getDocs(query(collection(db, "plant_failures"), orderBy("created_at", "desc"))),
+          getDocs(query(collection(db, "lab_analyses"), orderBy("fecha_envio", "desc"))),
+          getDocs(query(collection(db, "plant_consumptions"), orderBy("fecha", "desc"))),
+          getDocs(query(collection(db, "supplies"))),
+        ])
+
+        const runs = runsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+        const runById = runs.reduce((acc, run) => {
+          acc[run.id] = run
+          return acc
+        }, {})
+
+        const failures = failuresSnap.docs.map((doc) => {
+          const payload = doc.data()
+          const relatedRun = payload.plant_run_id ? runById[payload.plant_run_id] : undefined
+          return {
+            id: doc.id,
+            fecha: relatedRun?.fecha ?? payload.fecha ?? null,
+            maquina: payload.maquina ?? "",
+            tipo_falla: payload.tipo_falla ?? "",
+            duracion_horas: Number(payload.duracion_horas ?? 0),
+            estado: payload.estado ?? "",
+            responsable: payload.responsable ?? "",
+            descripcion: payload.descripcion ?? "",
+          }
+        })
+
+        const labs = labsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+        const consumptions = consumptionsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+        const supplies = suppliesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+
+        setData({ runs, failures, labs, consumptions, supplies })
+      } catch (err) {
+        console.error(err)
+        setError("No se pudo cargar la información gerencial.")
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchData()
+  }, [])
+
+  const machineryStats = useMemo(() => {
+    const durations = data.failures.map((item) => Number(item.duracion_horas || 0))
+    const avgDowntime = durations.length ? `${(durations.reduce((a, b) => a + b, 0) / durations.length).toFixed(1)} h` : "—"
+    const machines = new Set(data.failures.map((item) => item.maquina).filter(Boolean))
+
+    return {
     summary: {
-      avgDowntime: "3.4H",
-      totalFailures: 7,
-      affectedMachines: 3,
+        avgDowntime,
+        totalFailures: data.failures.length,
+        affectedMachines: machines.size,
     },
-    details: [
-      {
-        fecha: "01/06/2024",
-        maquina: "Molino #2",
-        tipoFalla: "Mecánica",
-        duracion: "4.5 h",
-        estado: "Abierta",
-        responsable: "Luis Gómez",
-        descripcion: "Falla en eje",
+      details: data.failures
+        .sort((a, b) => (a.fecha || "").localeCompare(b.fecha || ""))
+        .map((item) => ({
+          ...item,
+          fechaFormatted: formatDate(item.fecha),
+          duracionFormatted: item.duracion_horas ? `${Number(item.duracion_horas).toFixed(1)} h` : "—",
+        })),
+      meta: [
+        `Registros: ${data.failures.length}`,
+        periodLabel(data.failures.map((item) => item.fecha).filter(Boolean)),
+      ],
+    }
+  }, [data.failures])
+
+  const purityStats = useMemo(() => {
+    const today = startOfDay(new Date())
+    const startWindow = new Date(today)
+    startWindow.setDate(today.getDate() - 14)
+
+    const runsWithPurity = data.runs
+      .map((run) => {
+        const purity = Number(run.pureza_final ?? run.pureza ?? NaN)
+        const runDate = parseDate(run.fecha)
+        return {
+          ...run,
+          pureza: purity,
+          runDate: runDate ? startOfDay(runDate) : null,
+        }
+      })
+      .filter(
+        (run) =>
+          Number.isFinite(run.pureza) && run.runDate && run.runDate >= startWindow && run.runDate <= today
+      )
+
+    if (runsWithPurity.length === 0) {
+      return {
+        summary: {
+          copperAvg: "—",
+          copperStdDev: "—",
+          goldAvg: "—",
+          goldStdDev: "—",
+        },
+        chartData: [],
+        topLotes: { gold: "—", copper: "—", goldLow: "—", copperLow: "—" },
+        periodLabel: "Periodo: sin registros",
+        lotesEvaluados: 0,
+      }
+    }
+
+    const runsInPeriod = runsWithPurity
+    const periodLabelStr = `Periodo: ${startWindow.toLocaleDateString("es-PE")} - ${today.toLocaleDateString("es-PE")}`
+
+    const lotAggregation = new Map()
+    runsInPeriod.forEach((run) => {
+      const lote = run.lote || run.id.slice(0, 6)
+      if (!lotAggregation.has(lote)) {
+        lotAggregation.set(lote, {
+          lote,
+          oro: null,
+          cobre: null,
+          oroSum: 0,
+          oroCount: 0,
+          cobreSum: 0,
+          cobreCount: 0,
+        })
+      }
+      const entry = lotAggregation.get(lote)
+      if (run.material === "oro") {
+        entry.oroSum += run.pureza
+        entry.oroCount += 1
+        entry.oro = entry.oroSum / entry.oroCount
+      }
+      if (run.material === "cobre") {
+        entry.cobreSum += run.pureza
+        entry.cobreCount += 1
+        entry.cobre = entry.cobreSum / entry.cobreCount
+      }
+    })
+
+    const chartData = Array.from(lotAggregation.values()).map((item) => ({
+      lote: item.lote,
+      oro: item.oro !== null ? Number(item.oro.toFixed(2)) : null,
+      cobre: item.cobre !== null ? Number(item.cobre.toFixed(2)) : null,
+    }))
+
+    const goldValues = runsInPeriod
+      .filter((run) => run.material === "oro")
+      .map((run) => run.pureza)
+    const copperValues = runsInPeriod
+      .filter((run) => run.material === "cobre")
+      .map((run) => run.pureza)
+
+    const avg = (arr) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0)
+    const std = (arr, mean) =>
+      arr.length ? Math.sqrt(arr.reduce((acc, value) => acc + Math.pow(value - mean, 2), 0) / arr.length) : 0
+
+    const goldAvg = avg(goldValues)
+    const copperAvg = avg(copperValues)
+    const goldStd = std(goldValues, goldAvg)
+    const copperStd = std(copperValues, copperAvg)
+
+    const lotsWithGold = chartData.filter((item) => item.oro !== null)
+    const lotsWithCopper = chartData.filter((item) => item.cobre !== null)
+
+    const maxGold = lotsWithGold.reduce((acc, item) => (acc && acc.oro > item.oro ? acc : item), null)
+    const minGold = lotsWithGold.reduce((acc, item) => (acc && acc.oro < item.oro ? acc : item), null)
+    const maxCopper = lotsWithCopper.reduce((acc, item) => (acc && acc.cobre > item.cobre ? acc : item), null)
+    const minCopper = lotsWithCopper.reduce((acc, item) => (acc && acc.cobre < item.cobre ? acc : item), null)
+
+    chartData.sort((a, b) => {
+      const aValue = Math.max(a.oro ?? -Infinity, a.cobre ?? -Infinity)
+      const bValue = Math.max(b.oro ?? -Infinity, b.cobre ?? -Infinity)
+      return bValue - aValue
+    })
+
+    return {
+      summary: {
+        copperAvg: copperValues.length ? `${copperAvg.toFixed(2)}%` : "—",
+        copperStdDev: copperValues.length ? `${copperStd.toFixed(2)}%` : "—",
+        goldAvg: goldValues.length ? `${goldAvg.toFixed(2)}%` : "—",
+        goldStdDev: goldValues.length ? `${goldStd.toFixed(2)}%` : "—",
       },
-      {
-        fecha: "02/06/2024",
-        maquina: "Bomba #3",
-        tipoFalla: "Eléctrica",
-        duracion: "2.0 h",
-        estado: "Cerrada",
-        responsable: "Paola Machado",
-        descripcion: "Cortocircuito",
+      chartData,
+      topLotes: {
+        gold: maxGold?.lote ?? "—",
+        copper: maxCopper?.lote ?? "—",
+        goldLow: minGold?.lote ?? "—",
+        copperLow: minCopper?.lote ?? "—",
       },
-      {
-        fecha: "03/06/2024",
-        maquina: "Cinta #3",
-        tipoFalla: "Proceso",
-        duracion: "3.2 h",
-        estado: "Cerrada",
-        responsable: "Luis Gómez",
-        descripcion: "Sobrecarga",
+      periodLabel: periodLabelStr,
+      lotesEvaluados: chartData.length,
+    }
+  }, [data.runs])
+
+  const productionStats = useMemo(() => {
+    const monthKey = (value) => {
+      if (!value) return "sin-fecha"
+      return value.slice(0, 7)
+    }
+
+    const monthly = new Map()
+    data.runs.forEach((run) => {
+      const key = monthKey(run.fecha)
+      if (!monthly.has(key)) monthly.set(key, { mes: key, cobre: 0, oro: 0, total: 0 })
+      const entry = monthly.get(key)
+      const quantity = Number(run.cantidad_t ?? 0)
+      entry.total += quantity
+      if (run.material === "cobre") entry.cobre += quantity
+      if (run.material === "oro") entry.oro += quantity
+    })
+
+    const chartData = Array.from(monthly.values())
+      .filter((item) => item.mes !== "sin-fecha")
+      .sort((a, b) => a.mes.localeCompare(b.mes))
+      .map((item) => {
+        const date = new Date(`${item.mes}-01T00:00:00`)
+        const label = Number.isNaN(date.getTime())
+          ? item.mes
+          : date.toLocaleDateString("es-PE", { month: "short", year: "numeric" })
+        return { ...item, mes: label }
+      })
+
+    const sortedKeys = Array.from(monthly.keys()).filter((key) => key !== "sin-fecha").sort()
+    const latestKey = sortedKeys[sortedKeys.length - 1]
+    const previousKey = sortedKeys[sortedKeys.length - 2]
+
+    const lastTotal = latestKey ? monthly.get(latestKey)?.total ?? 0 : 0
+    const previousTotal = previousKey ? monthly.get(previousKey)?.total ?? 0 : 0
+
+    const goldProduction = data.runs
+      .filter((run) => run.material === "oro")
+      .reduce((acc, run) => acc + Number(run.cantidad_t ?? 0), 0)
+    const copperProduction = data.runs
+      .filter((run) => run.material === "cobre")
+      .reduce((acc, run) => acc + Number(run.cantidad_t ?? 0), 0)
+
+    const suppliesInventory = data.supplies.reduce(
+      (acc, item) => acc + Number(item.cantidad_actual ?? item.cantidadActual ?? 0),
+      0
+    )
+
+    return {
+    summary: {
+        monthlyProduction: lastTotal ? `${formatNumber(lastTotal)} t` : "—",
+        monthlyVariation: previousTotal ? `${(((lastTotal - previousTotal) / previousTotal) * 100).toFixed(1)}%` : "—",
+        currentInventory: suppliesInventory ? `${formatNumber(suppliesInventory)} u.` : "—",
+        goldProduction: goldProduction ? `${formatNumber(goldProduction)} t` : "—",
+        copperProduction: copperProduction ? `${formatNumber(copperProduction)} t` : "—",
+    },
+      chartData,
+      meta: [
+        `Lotes registrados: ${data.runs.length}`,
+        periodLabel(data.runs.map((item) => item.fecha).filter(Boolean)),
+        variationLabel(lastTotal, previousTotal),
+      ],
+    }
+  }, [data.runs, data.supplies])
+
+  const normalizeSupplyName = (value) => {
+    if (!value) return "sin nombre"
+    return value.toString().trim().toLowerCase()
+  }
+
+  const suppliesStats = useMemo(() => {
+    const catalog = data.supplies.reduce((acc, item) => {
+      acc.set(item.id, {
+        nombre: item.nombre ?? "",
+        unidad: item.unidad ?? "u.",
+      })
+      return acc
+    }, new Map())
+
+    const totalsByName = new Map()
+    const totalsByMonth = new Map()
+    const lotesConConsumo = new Set()
+
+    data.consumptions.forEach((item) => {
+      const cantidad = Number(item.cantidad ?? 0)
+      const supplyId = item.insumo_id || item.insumo || "sin-insumo"
+      const catalogEntry = supplyId && catalog.has(supplyId) ? catalog.get(supplyId) : null
+      const displayName = catalogEntry?.nombre || item.insumo || "Sin nombre"
+      const unidad = catalogEntry?.unidad || item.unidad || "u."
+      const normalized = normalizeSupplyName(displayName)
+
+      if (!totalsByName.has(normalized)) {
+        totalsByName.set(normalized, { total: 0, name: displayName, unidad })
+      }
+      const entry = totalsByName.get(normalized)
+      entry.total += cantidad
+      if (!entry.unidad) entry.unidad = unidad
+      if (!entry.name) entry.name = displayName
+
+      const month = item.fecha ? item.fecha.slice(0, 7) : "sin-fecha"
+      if (!totalsByMonth.has(month)) totalsByMonth.set(month, 0)
+      totalsByMonth.set(month, totalsByMonth.get(month) + cantidad)
+
+      if (item.plant_run_id) {
+        lotesConConsumo.add(item.plant_run_id)
+      }
+    })
+
+    const totalsArray = Array.from(totalsByName.values())
+    const totalConsumed = totalsArray.reduce((acc, item) => acc + item.total, 0)
+    const sortedSupplies = totalsArray.sort((a, b) => b.total - a.total)
+    const mostUsedEntry = sortedSupplies[0]
+    const mostUsedLabel = mostUsedEntry ? `${mostUsedEntry.name} (${formatNumber(mostUsedEntry.total)} ${mostUsedEntry.unidad})` : "—"
+    const otherSupplies = sortedSupplies.slice(1).reduce((acc, item) => acc + item.total, 0)
+
+    const sortedMonths = Array.from(totalsByMonth.entries())
+      .filter(([month]) => month !== "sin-fecha")
+      .sort(([a], [b]) => a.localeCompare(b))
+    const lastMonthTotal = sortedMonths[sortedMonths.length - 1]?.[1] ?? 0
+    const prevMonthTotal = sortedMonths[sortedMonths.length - 2]?.[1] ?? 0
+    const monthlyVariation = signedPercent(lastMonthTotal, prevMonthTotal)
+
+    const chartData = sortedSupplies.map((item, index) => ({
+      name: item.name,
+      value: item.total,
+      color: COLORS[index % COLORS.length],
+    }))
+
+    const unidadPrincipal = mostUsedEntry?.unidad || "u."
+    const avgPerBatch =
+      lotesConConsumo.size > 0 && totalConsumed
+        ? `${formatNumber(totalConsumed / lotesConConsumo.size)} ${unidadPrincipal}`
+        : "—"
+
+    return {
+      summary: {
+        totalConsumed: totalConsumed ? `${formatNumber(totalConsumed)} ${unidadPrincipal}` : "—",
+        mostUsed: mostUsedLabel,
+        monthlyVariation,
+        avgPerBatch,
+        otherSupplies: otherSupplies ? `${formatNumber(otherSupplies)} ${unidadPrincipal}` : "—",
       },
+      chartData,
+      meta: [
+        `Movimientos: ${data.consumptions.length}`,
+        `Lotes con consumo: ${lotesConConsumo.size}`,
+        periodLabel(data.consumptions.map((item) => item.fecha).filter(Boolean)),
+      ],
+    }
+  }, [data.consumptions, data.supplies])
+
+  const tabs = [
+    { id: "machinery", label: "Fallas en maquinaria" },
+    { id: "purity", label: "Pureza quincenal" },
+    { id: "production", label: "Producción mensual" },
+    { id: "supplies", label: "Consumo de insumos" },
+  ]
+
+  const tabConfig = {
+    machinery: {
+      meta: machineryStats.meta,
+      badge: "Operaciones",
+      metrics: [
+        { label: "Tiempo promedio de paro", value: machineryStats.summary.avgDowntime },
+        { label: "Total de fallas", value: machineryStats.summary.totalFailures, alt: true },
+        { label: "Máquinas afectadas", value: machineryStats.summary.affectedMachines },
+      ],
+    },
+    purity: {
+      meta: [purityStats.periodLabel, `Lotes evaluados: ${purityStats.lotesEvaluados}`],
+      badge: "Laboratorio",
+      metrics: [
+        { label: "Pureza promedio cobre", value: purityStats.summary.copperAvg },
+        { label: "Desviación cobre", value: purityStats.summary.copperStdDev, alt: true },
+        { label: "Pureza promedio oro", value: purityStats.summary.goldAvg },
+        { label: "Desviación oro", value: purityStats.summary.goldStdDev, alt: true },
     ],
+    },
+    production: {
+      meta: productionStats.meta,
+      badge: "Producción",
+      metrics: [
+        { label: "Producción total del último mes", value: productionStats.summary.monthlyProduction },
+        { label: "Variación mensual", value: productionStats.summary.monthlyVariation, alt: true },
+        { label: "Inventario actual", value: productionStats.summary.currentInventory },
+        { label: "Producción oro", value: productionStats.summary.goldProduction },
+        { label: "Producción cobre", value: productionStats.summary.copperProduction },
+      ],
+    },
+    supplies: {
+      meta: suppliesStats.meta,
+      badge: "Insumos",
+      metrics: [
+        { label: "Consumo total", value: suppliesStats.summary.totalConsumed },
+        { label: "Insumo más usado", value: suppliesStats.summary.mostUsed },
+        { label: "Variación mensual", value: suppliesStats.summary.monthlyVariation, alt: true },
+        { label: "Promedio por lote", value: suppliesStats.summary.avgPerBatch },
+      ],
+    },
   }
 
-  // Datos para Reporte de Pureza Quincenal
-  const purityData = {
-    summary: {
-      copperAvg: "87.34%",
-      copperStdDev: "8.34%",
-      goldAvg: "94.32%",
-      goldStdDev: "4.31%",
-    },
-    chartData: [
-      { lote: "01", oro: 91, cobre: 84 },
-      { lote: "02", oro: 96, cobre: 91 },
-      { lote: "03", oro: 94, cobre: 89 },
-      { lote: "04", oro: 90, cobre: 87 },
-      { lote: "05", oro: 99, cobre: 92 },
-      { lote: "06", oro: 97, cobre: 78 },
-      { lote: "07", oro: 89, cobre: 92 },
-      { lote: "08", oro: 93, cobre: 82 },
-      { lote: "09", oro: 87, cobre: 87 },
-      { lote: "10", oro: 94, cobre: 88 },
-    ],
-    topLotes: {
-      gold: "O-783",
-      copper: "C-741",
-      goldLow: "O-452",
-      copperLow: "C-365",
-    },
-  }
+  const activeConfig = tabConfig[reportType]
 
-  // Datos para Reporte de Producción Total
-  const productionData = {
-    summary: {
-      monthlyProduction: "224 T",
-      monthlyVariation: "13%",
-      currentInventory: "346 T",
-      goldProduction: "98 T",
-      copperProduction: "126 T",
-    },
-    chartData: [
-      { mes: "Enero", cobre: 113, oro: 108, total: 221 },
-      { mes: "Febrero", cobre: 132, oro: 153, total: 285 },
-      { mes: "Marzo", cobre: 91, oro: 134, total: 225 },
-      { mes: "Abril", cobre: 112, oro: 109, total: 221 },
-      { mes: "Mayo", cobre: 135, oro: 102, total: 237 },
-      { mes: "Junio", cobre: 126, oro: 98, total: 224 },
-    ],
-  }
-
-  // Datos para Reporte de Insumos
-  const suppliesData = {
-    summary: {
-      totalConsumed: "8426 L",
-      mostUsed: "I-001 Agua",
-      monthlyVariation: "7.12%",
-      avgPerBatch: "845 L",
-      otherSupplies: "2145 L",
-    },
-    chartData: [
-      { name: "Agua", value: 1950, color: "#2B5E7E" },
-      { name: "Depresores", value: 1950, color: "#EC7E3A" },
-      { name: "Reguladores de PH", value: 1587, color: "#DC2626" },
-      { name: "Activadores", value: 1080, color: "#22C55E" },
-      { name: "Espumantes", value: 1080, color: "#10B981" },
-      { name: "Colectores", value: 799, color: "#06B6D4" },
-    ],
-  }
-
-  return (
-    <main className="flex-1 overflow-auto p-8 bg-background">
-      <div className="max-w-7xl mx-auto">
-        {/* Botones para cambiar entre reportes */}
-        <div className="flex flex-wrap gap-3 mb-8">
-          <Button
-            onClick={() => setReportType("machinery")}
-            className={`${
-              reportType === "machinery"
-                ? "bg-primary text-primary-foreground"
-                : "bg-primary/20 text-primary hover:bg-primary/30"
-            }`}
-          >
-            Fallas en Maquinaria
-          </Button>
-          <Button
-            onClick={() => setReportType("purity")}
-            className={`${
-              reportType === "purity"
-                ? "bg-primary text-primary-foreground"
-                : "bg-primary/20 text-primary hover:bg-primary/30"
-            }`}
-          >
-            Pureza Promedio Quincenal
-          </Button>
-          <Button
-            onClick={() => setReportType("production")}
-            className={`${
-              reportType === "production"
-                ? "bg-primary text-primary-foreground"
-                : "bg-primary/20 text-primary hover:bg-primary/30"
-            }`}
-          >
-            Producción Total del Mes
-          </Button>
-          <Button
-            onClick={() => setReportType("supplies")}
-            className={`${
-              reportType === "supplies"
-                ? "bg-primary text-primary-foreground"
-                : "bg-primary/20 text-primary hover:bg-primary/30"
-            }`}
-          >
-            Insumos - Mayor Consumo
-          </Button>
+  const renderMachinery = () => (
+    <div className="dashboard-card-grid">
+      <div className="dashboard-analytics-card">
+        <div className="dashboard-analytics-card__header">
+          <h3 className="dashboard-analytics-card__title">Detalle de fallas registradas</h3>
+          <span className="dashboard-analytics-card__description">Seguimiento cronológico por equipo afectado.</span>
         </div>
-
-        {/* REPORTE 1: FALLAS EN MAQUINARIA */}
-        {reportType === "machinery" && (
-          <div className="space-y-6">
-            <div className="bg-white border border-border rounded-lg p-6">
-              <div className="flex justify-between items-center mb-6">
-                <div className="flex gap-8">
-                  <div>
-                    <p className="text-sm text-muted-foreground">N°: 00479</p>
-                  </div>
-                  <h1 className="text-3xl font-bold text-primary text-center flex-1">
-                    Reporte de fallas en maquinaria
-                  </h1>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Periodo: 01/06/2025 - 15/06/2025</p>
-                </div>
-              </div>
-
-              <div className="bg-primary text-primary-foreground p-4 rounded-md mb-6 grid grid-cols-3 gap-4 text-center">
-                <div>
-                  <p className="font-semibold">Tiempo promedio de paro:</p>
-                  <p className="text-lg">{machineryFailures.summary.avgDowntime}</p>
-                </div>
-                <div>
-                  <p className="font-semibold">Numero total de fallas registradas:</p>
-                  <p className="text-lg">{machineryFailures.summary.totalFailures}</p>
-                </div>
-                <div>
-                  <p className="font-semibold">Máquinas afectadas:</p>
-                  <p className="text-lg">{machineryFailures.summary.affectedMachines}</p>
-                </div>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+        {machineryStats.details.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No hay registros de fallas en el periodo seleccionado.</p>
+        ) : (
+          <table className="dashboard-analytics-table">
                   <thead>
-                    <tr className="bg-accent text-accent-foreground">
-                      <th className="px-4 py-2 text-left font-semibold">Fecha</th>
-                      <th className="px-4 py-2 text-left font-semibold">Máquina</th>
-                      <th className="px-4 py-2 text-left font-semibold">Tipo de falla</th>
-                      <th className="px-4 py-2 text-left font-semibold">Duración</th>
-                      <th className="px-4 py-2 text-left font-semibold">Estado</th>
-                      <th className="px-4 py-2 text-left font-semibold">Responsable</th>
-                      <th className="px-4 py-2 text-left font-semibold">Descripción</th>
+              <tr>
+                <th>Fecha</th>
+                <th>Máquina</th>
+                <th>Tipo de falla</th>
+                <th>Duración</th>
+                <th>Estado</th>
+                <th>Responsable</th>
+                <th>Descripción</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {machineryFailures.details.map((item, idx) => (
-                      <tr key={idx} className={idx % 2 === 0 ? "bg-gray-100" : "bg-white"}>
-                        <td className="px-4 py-2">{item.fecha}</td>
-                        <td className="px-4 py-2">{item.maquina}</td>
-                        <td className="px-4 py-2">{item.tipoFalla}</td>
-                        <td className="px-4 py-2">{item.duracion}</td>
-                        <td className="px-4 py-2">{item.estado}</td>
-                        <td className="px-4 py-2">{item.responsable}</td>
-                        <td className="px-4 py-2">{item.descripcion}</td>
+              {machineryStats.details.map((item) => (
+                <tr key={item.id}>
+                  <td>{item.fechaFormatted}</td>
+                  <td>{item.maquina || "—"}</td>
+                  <td>{item.tipo_falla || "—"}</td>
+                  <td>{item.duracionFormatted}</td>
+                  <td>{item.estado || "—"}</td>
+                  <td>{item.responsable || "—"}</td>
+                  <td>{item.descripcion || "—"}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              </div>
-
-              <div className="mt-6 flex justify-between items-center">
-                <p className="text-sm text-muted-foreground">Emitido: 30/10/2025</p>
-                <Button className="bg-accent hover:bg-accent/90 text-accent-foreground">Imprimir</Button>
-              </div>
-            </div>
-          </div>
         )}
-
-        {/* REPORTE 2: PUREZA PROMEDIO QUINCENAL */}
-        {reportType === "purity" && (
-          <div className="space-y-6">
-            <div className="bg-white border border-border rounded-lg p-6">
-              <div className="flex justify-between items-center mb-6">
-                <div>
-                  <p className="text-sm text-muted-foreground">N°: 00479</p>
+        <div className="dashboard-analytics-footer">
+          <span>Última sincronización: {formatDate(new Date())}</span>
+          <Button variant="accent" className="inline-flex items-center gap-2" onClick={() => window.print()}>
+            <Printer size={16} />
+            Imprimir
+          </Button>
                 </div>
-                <h1 className="text-3xl font-bold text-primary">Reporte de pureza promedio quincenal</h1>
-                <div>
-                  <p className="text-sm text-muted-foreground">Periodo: 01/06/2025 - 15/06/2025</p>
                 </div>
               </div>
+  )
 
-              <div className="bg-accent text-accent-foreground p-4 rounded-md mb-6 grid grid-cols-4 gap-4 text-center mb-6">
-                <div>
-                  <p className="font-semibold">Pureza promedio del cobre:</p>
-                  <p className="text-lg">{purityData.summary.copperAvg}</p>
+  const renderPurity = () => (
+    <div className="dashboard-card-grid">
+      <div className="dashboard-analytics-card" style={{ minHeight: 0 }}>
+        <div className="dashboard-analytics-card__header">
+          <h3 className="dashboard-analytics-card__title">Pureza por lote</h3>
+          <span className="dashboard-analytics-card__description">Comparación de oro vs. cobre por bloque.</span>
                 </div>
-                <div>
-                  <p className="font-semibold">Desviación estándar:</p>
-                  <p className="text-lg">{purityData.summary.copperStdDev}</p>
-                </div>
-                <div>
-                  <p className="font-semibold">Pureza promedio del oro:</p>
-                  <p className="text-lg">{purityData.summary.goldAvg}</p>
-                </div>
-                <div>
-                  <p className="font-semibold">Desviación estándar:</p>
-                  <p className="text-lg">{purityData.summary.goldStdDev}</p>
-                </div>
-              </div>
-
-              <div className="border-4 border-purple-300 bg-gray-50 p-6 rounded-lg">
-                <h3 className="text-center text-lg font-semibold mb-6 text-foreground">Pureza por lote de cobre</h3>
-                <div className="flex justify-between items-start gap-6">
-                  <div className="flex-1">
-                    <ResponsiveContainer width="100%" height={300}>
-                      <BarChart data={purityData.chartData}>
+        <div style={{ height: 320 }}>
+          {purityStats.chartData.length === 0 ? (
+            <p className="text-sm text-muted-foreground p-4">No hay análisis de laboratorio registrados.</p>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={purityStats.chartData}>
                         <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis
-                          dataKey="lote"
-                          label={{ value: "Bloques de producción", position: "insideBottomRight", offset: -5 }}
-                        />
+                <XAxis dataKey="lote" label={{ value: "Bloques", position: "insideBottomRight", offset: -5 }} />
                         <YAxis label={{ value: "Pureza (%)", angle: -90, position: "insideLeft" }} />
                         <Tooltip />
                         <Legend />
@@ -289,74 +548,63 @@ export default function GerenciaReports() {
                         <Bar dataKey="cobre" fill="#EC7E3A" name="Cobre" />
                       </BarChart>
                     </ResponsiveContainer>
+          )}
                   </div>
-                  <div className="w-48 text-sm">
-                    <p className="font-semibold text-primary mb-4">Lote con mayor pureza:</p>
-                    <p>
-                      <span className="font-semibold">Oro:</span> {purityData.topLotes.gold}
-                    </p>
-                    <p>
-                      <span className="font-semibold">Cobre:</span> {purityData.topLotes.copper}
-                    </p>
-                    <p className="font-semibold text-primary mt-4 mb-2">Lote con menor pureza:</p>
-                    <p>
-                      <span className="font-semibold">Oro:</span> {purityData.topLotes.goldLow}
-                    </p>
-                    <p>
-                      <span className="font-semibold">Cobre:</span> {purityData.topLotes.copperLow}
-                    </p>
+        <div className="dashboard-analytics-footer">
+          <span>Lotes evaluados: {purityStats.chartData.length}</span>
+          <Button variant="accent" className="inline-flex items-center gap-2" onClick={() => window.print()}>
+            <Printer size={16} />
+            Imprimir
+          </Button>
                   </div>
                 </div>
+      <div className="dashboard-analytics-card">
+        <div className="dashboard-analytics-card__header">
+          <h3 className="dashboard-analytics-card__title">Lotes destacados</h3>
               </div>
-
-              <div className="mt-6 flex justify-between items-center">
-                <p className="text-sm text-muted-foreground">Emitido: 30/10/2025</p>
-                <Button className="bg-accent hover:bg-accent/90 text-accent-foreground">Imprimir</Button>
+        <div className="dashboard-analytics-card__description">
+          Referencias con mejor y menor desempeño en la quincena.
               </div>
+        <table className="dashboard-analytics-table">
+          <tbody>
+            <tr>
+              <th>Oro - mayor pureza</th>
+              <td>{purityStats.topLotes.gold}</td>
+            </tr>
+            <tr>
+              <th>Cobre - mayor pureza</th>
+              <td>{purityStats.topLotes.copper}</td>
+            </tr>
+            <tr>
+              <th>Oro - menor pureza</th>
+              <td>{purityStats.topLotes.goldLow}</td>
+            </tr>
+            <tr>
+              <th>Cobre - menor pureza</th>
+              <td>{purityStats.topLotes.copperLow}</td>
+            </tr>
+          </tbody>
+        </table>
             </div>
           </div>
-        )}
+  )
 
-        {/* REPORTE 3: PRODUCCIÓN TOTAL DEL MES */}
-        {reportType === "production" && (
-          <div className="space-y-6">
-            <div className="bg-white border border-border rounded-lg p-6">
-              <div className="flex justify-between items-center mb-6">
-                <div>
-                  <p className="text-sm text-muted-foreground">N°: 00012</p>
+  const renderProduction = () => (
+    <div className="dashboard-card-grid">
+      <div className="dashboard-analytics-card" style={{ minHeight: 0 }}>
+        <div className="dashboard-analytics-card__header">
+          <h3 className="dashboard-analytics-card__title">Producción total mensual</h3>
+          <span className="dashboard-analytics-card__description">Desempeño por mineral y consolidado.</span>
                 </div>
-                <h1 className="text-3xl font-bold text-primary">Reporte de producción total del mes</h1>
-                <div>
-                  <p className="text-sm text-muted-foreground">Mes: Junio-2024</p>
-                </div>
-              </div>
-
-              <div className="bg-accent text-accent-foreground p-4 rounded-md mb-6 grid grid-cols-3 gap-4 text-center">
-                <div>
-                  <p className="font-semibold">Producción total del mes:</p>
-                  <p className="text-lg">{productionData.summary.monthlyProduction}</p>
-                </div>
-                <div>
-                  <p className="font-semibold">Variación con el mes anterior:</p>
-                  <p className="text-lg">{productionData.summary.monthlyVariation}</p>
-                </div>
-                <div>
-                  <p className="font-semibold">Inventario Actual:</p>
-                  <p className="text-lg">{productionData.summary.currentInventory}</p>
-                </div>
-              </div>
-
-              <div className="bg-gray-50 p-6 rounded-lg mb-6">
-                <h3 className="text-center text-lg font-semibold mb-6 text-foreground">
-                  Gráfico de producción total mensual
-                </h3>
-                <div className="flex justify-between items-start gap-6">
-                  <div className="flex-1">
-                    <ResponsiveContainer width="100%" height={300}>
-                      <BarChart data={productionData.chartData}>
+        <div style={{ height: 320 }}>
+          {productionStats.chartData.length === 0 ? (
+            <p className="text-sm text-muted-foreground p-4">No hay lotes de producción registrados.</p>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={productionStats.chartData}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="mes" label={{ value: "Meses", position: "insideBottomRight", offset: -5 }} />
-                        <YAxis label={{ value: "Producción (T)", angle: -90, position: "insideLeft" }} />
+                <YAxis label={{ value: "Toneladas", angle: -90, position: "insideLeft" }} />
                         <Tooltip />
                         <Legend />
                         <Bar dataKey="cobre" fill="#2B5E7E" name="Cobre" />
@@ -364,90 +612,157 @@ export default function GerenciaReports() {
                         <Bar dataKey="total" fill="#F59E0B" name="Total" />
                       </BarChart>
                     </ResponsiveContainer>
+          )}
                   </div>
-                  <div className="w-56 text-sm">
-                    <p className="text-primary font-semibold text-lg">{productionData.summary.goldProduction}</p>
-                    <p className="text-foreground">Producción total de oro</p>
-                    <p className="text-primary font-semibold text-lg mt-4">{productionData.summary.copperProduction}</p>
-                    <p className="text-foreground">Producción total de Cobre</p>
+        <div className="dashboard-analytics-footer">
+          <span>Promedio mensual: {productionStats.summary.monthlyProduction}</span>
+          <Button variant="accent" className="inline-flex items-center gap-2" onClick={() => window.print()}>
+            <Printer size={16} />
+            Imprimir
+          </Button>
                   </div>
                 </div>
               </div>
+  )
 
-              <div className="mt-6 flex justify-between items-center">
-                <p className="text-sm text-muted-foreground">Emitido: 30/10/2025</p>
-                <Button className="bg-accent hover:bg-accent/90 text-accent-foreground">Imprimir</Button>
+  const renderSupplies = () => (
+    <div className="dashboard-card-grid">
+      <div className="dashboard-analytics-card" style={{ minHeight: 0 }}>
+        <div className="dashboard-analytics-card__header">
+          <h3 className="dashboard-analytics-card__title">Distribución de consumo</h3>
+          <span className="dashboard-analytics-card__description">Participación por tipo de insumo en el periodo.</span>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* REPORTE 4: INSUMOS CON MAYOR CONSUMO */}
-        {reportType === "supplies" && (
-          <div className="space-y-6">
-            <div className="bg-white border border-border rounded-lg p-6">
-              <div className="flex justify-between items-center mb-6">
-                <div>
-                  <p className="text-sm text-muted-foreground">N°: 00479</p>
-                </div>
-                <h1 className="text-3xl font-bold text-primary">Reporte de insumos con mayor consumo por mes</h1>
-              </div>
-
-              <div className="bg-accent text-accent-foreground p-4 rounded-md mb-6 grid grid-cols-3 gap-4 text-center">
-                <div>
-                  <p className="font-semibold">Total de insumos consumidos:</p>
-                  <p className="text-lg">{suppliesData.summary.totalConsumed}</p>
-                </div>
-                <div>
-                  <p className="font-semibold">Insumo mas usado:</p>
-                  <p className="text-lg">{suppliesData.summary.mostUsed}</p>
-                </div>
-                <div>
-                  <p className="font-semibold">Variación con el mes anterior:</p>
-                  <p className="text-lg">{suppliesData.summary.monthlyVariation}</p>
-                </div>
-              </div>
-
-              <div className="bg-gray-50 p-6 rounded-lg">
-                <div className="flex justify-between items-center gap-6">
-                  <div className="flex-1">
-                    <ResponsiveContainer width="100%" height={300}>
+        <div style={{ height: 320 }}>
+          {suppliesStats.chartData.length === 0 ? (
+            <p className="text-sm text-muted-foreground p-4">No hay consumos registrados.</p>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie
-                          data={suppliesData.chartData}
+                  data={suppliesStats.chartData}
                           cx="50%"
                           cy="50%"
-                          labelLine={true}
-                          label={({ name, value, percent }) => `${name} ${(percent * 100).toFixed(1)}%`}
-                          outerRadius={80}
-                          fill="#8884d8"
+                  labelLine
+                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(1)}%`}
+                  outerRadius={110}
                           dataKey="value"
                         >
-                          {suppliesData.chartData.map((entry, index) => (
+                  {suppliesStats.chartData.map((entry, index) => (
                             <Cell key={`cell-${index}`} fill={entry.color} />
                           ))}
                         </Pie>
                         <Tooltip />
                       </PieChart>
                     </ResponsiveContainer>
+          )}
+        </div>
+      </div>
+      <div className="dashboard-analytics-card">
+        <div className="dashboard-analytics-card__header">
+          <h3 className="dashboard-analytics-card__title">Resumen operativo</h3>
+        </div>
+        <div className="dashboard-analytics-card__description">
+          Indicadores clave para reposición y planificación de compras.
                   </div>
-                  <div className="w-48 text-sm">
-                    <p className="font-semibold text-primary text-lg">{suppliesData.summary.avgPerBatch}</p>
-                    <p className="text-foreground mb-4">Promedio por lote procesado</p>
-                    <p className="font-semibold text-primary text-lg">{suppliesData.summary.otherSupplies}</p>
-                    <p className="text-foreground">Consumo de otros insumos</p>
+        <table className="dashboard-analytics-table">
+          <tbody>
+            <tr>
+              <th>Total consumido</th>
+              <td>{suppliesStats.summary.totalConsumed}</td>
+            </tr>
+            <tr>
+              <th>Insumo más utilizado</th>
+              <td>{suppliesStats.summary.mostUsed}</td>
+            </tr>
+            <tr>
+              <th>Variación mensual</th>
+              <td>{suppliesStats.summary.monthlyVariation}</td>
+            </tr>
+            <tr>
+              <th>Consumo otros insumos</th>
+              <td>{suppliesStats.summary.otherSupplies}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div className="dashboard-analytics-footer">
+          <span>Promedio por lote: {suppliesStats.summary.avgPerBatch}</span>
+          <Button variant="accent" className="inline-flex items-center gap-2" onClick={() => window.print()}>
+            <Printer size={16} />
+            Imprimir
+          </Button>
                   </div>
                 </div>
               </div>
+  )
 
-              <div className="mt-6 flex justify-between items-center">
-                <p className="text-sm text-muted-foreground">Emitido: 30/10/2025</p>
-                <Button className="bg-accent hover:bg-accent/90 text-accent-foreground">Imprimir</Button>
+  const renderContent = () => {
+    switch (reportType) {
+      case "machinery":
+        return renderMachinery()
+      case "purity":
+        return renderPurity()
+      case "production":
+        return renderProduction()
+      case "supplies":
+        return renderSupplies()
+      default:
+        return null
+    }
+  }
+
+  return (
+    <section className="dashboard-report">
+      <div className="dashboard-hero-block">
+        <div className="dashboard-hero-tabs">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setReportType(tab.id)}
+              className={`dashboard-hero-tab ${reportType === tab.id ? "dashboard-hero-tab--active" : ""}`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
               </div>
+
+      <div className="dashboard-report__container">
+        <header className="dashboard-report__header">
+          <div className="dashboard-report__title-block">
+            <div className="dashboard-report__meta">
+              {activeConfig.meta.map((item) => (
+                <span key={item}>{item}</span>
+              ))}
             </div>
+            <h2 className="dashboard-report__title">
+              {reportType === "machinery" && "Reporte de fallas en maquinaria"}
+              {reportType === "purity" && "Reporte de pureza promedio quincenal"}
+              {reportType === "production" && "Reporte de producción total del mes"}
+              {reportType === "supplies" && "Reporte de insumos con mayor consumo por mes"}
+            </h2>
           </div>
-        )}
+          <span className="dashboard-report__badge">{activeConfig.badge}</span>
+        </header>
+
+        {loading && <p className="text-sm text-muted-foreground mb-4">Sincronizando datos…</p>}
+        {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
+
+        <div className="dashboard-report__metrics">
+          {activeConfig.metrics.map((metric) => (
+            <div
+              key={metric.label}
+              className={`dashboard-report__metric ${metric.alt ? "dashboard-report__metric--alt" : ""}`}
+            >
+              <span className="dashboard-report__metric-label">{metric.label}</span>
+              <span className="dashboard-report__metric-value">{metric.value}</span>
+              {metric.detail && <span>{metric.detail}</span>}
+            </div>
+          ))}
+        </div>
+
+        {renderContent()}
       </div>
-    </main>
+    </section>
   )
 }

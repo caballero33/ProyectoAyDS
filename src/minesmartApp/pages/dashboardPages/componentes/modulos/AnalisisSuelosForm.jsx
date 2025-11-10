@@ -1,131 +1,220 @@
 import { useState } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../../components/ui/Card"
+import { collection, addDoc, serverTimestamp } from "firebase/firestore"
 import { Input } from "../../../../../components/ui/Input"
-import { Label } from "../../../../../components/ui/Label"
 import { Button } from "../../../../../components/ui/Button"
+import { db } from "../../../../../lib/firebase"
+
+const initialForm = {
+  zona: "",
+  fecha: "",
+  analista: "",
+  ph: "",
+  pureza: "",
+  humedad: "",
+  apta: "no",
+  observaciones: "",
+}
 
 export default function AnalisisSuelosForm() {
-  const [formData, setFormData] = useState({
-    zona: "",
-    fecha: "",
-    ph: "",
-    pureza: "",
-    humedad: "",
-    apta: "no",
-  })
+  const [formData, setFormData] = useState(initialForm)
+  const [submitting, setSubmitting] = useState(false)
+  const [feedback, setFeedback] = useState({ type: null, message: "" })
 
   const handleChange = (e) => {
     const { name, value } = e.target
     setFormData((prev) => ({ ...prev, [name]: value }))
   }
 
-  const handleSubmit = (e) => {
+  const resetForm = () => {
+    setFormData(initialForm)
+  }
+
+  const handleSubmit = async (e) => {
     e.preventDefault()
-    console.log("[v0] Datos de análisis de suelo:", formData)
-    setFormData({ zona: "", fecha: "", ph: "", pureza: "", humedad: "", apta: "no" })
+    setSubmitting(true)
+    setFeedback({ type: null, message: "" })
+
+    try {
+      await addDoc(collection(db, "soil_analyses"), {
+        zona: formData.zona,
+        fecha: formData.fecha,
+        analista: formData.analista,
+        resultado_ph: Number(formData.ph),
+        pureza: Number(formData.pureza),
+        humedad: Number(formData.humedad),
+        zona_apta: formData.apta === "si",
+        observaciones: formData.observaciones,
+        created_at: serverTimestamp(),
+      })
+
+      setFeedback({ type: "success", message: "Análisis registrado correctamente." })
+      resetForm()
+    } catch (err) {
+      console.error(err)
+      setFeedback({ type: "error", message: "No se pudo guardar el análisis. Intenta nuevamente." })
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
-    <main className="flex-1 overflow-auto p-8 bg-background">
-      <Card className="border-border max-w-2xl">
-        <CardHeader className="bg-primary text-primary-foreground">
-          <CardTitle className="text-2xl">Ingreso de Datos - Análisis de Suelos</CardTitle>
-          <CardDescription className="text-primary-foreground/70">Ingresa los parámetros del análisis</CardDescription>
-        </CardHeader>
-        <CardContent className="pt-6">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="zona">Zona</Label>
-                <Input
-                  id="zona"
-                  name="zona"
-                  placeholder="Ej: Zona norte - sector A"
-                  value={formData.zona}
-                  onChange={handleChange}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="fecha">Fecha</Label>
-                <Input id="fecha" name="fecha" type="date" value={formData.fecha} onChange={handleChange} required />
-              </div>
-            </div>
+    <section className="dashboard-form">
+      <div className="dashboard-form__header">
+        <p className="dashboard-form__eyebrow">Ingreso de datos</p>
+        <h1 className="dashboard-form__title">Análisis de suelos</h1>
+        <p className="dashboard-form__subtitle">Ingresa los parámetros del análisis para registrar la campaña.</p>
+      </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="ph">Resultado de pH</Label>
-                <Input
-                  id="ph"
-                  name="ph"
-                  type="number"
-                  step="0.1"
-                  placeholder="Ej: 7.5"
-                  value={formData.ph}
-                  onChange={handleChange}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="pureza">Pureza (%)</Label>
-                <Input
-                  id="pureza"
-                  name="pureza"
-                  type="number"
-                  step="0.1"
-                  placeholder="Ej: 85.5"
-                  value={formData.pureza}
-                  onChange={handleChange}
-                  required
-                />
-              </div>
+      <div className="dashboard-form__card">
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="dashboard-form__grid">
+            <div>
+              <label htmlFor="zona" className="dashboard-form__label">
+                Zona
+              </label>
+              <Input
+                id="zona"
+                name="zona"
+                placeholder="Ej: Zona norte - sector A"
+                value={formData.zona}
+                onChange={handleChange}
+                required
+                className="dashboard-form__input"
+              />
             </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="humedad">Humedad (%)</Label>
-                <Input
-                  id="humedad"
-                  name="humedad"
-                  type="number"
-                  step="0.1"
-                  placeholder="Ej: 6.5"
-                  value={formData.humedad}
-                  onChange={handleChange}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="apta">¿Zona Apta?</Label>
-                <select
-                  id="apta"
-                  name="apta"
-                  value={formData.apta}
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground"
-                >
-                  <option value="si">Sí</option>
-                  <option value="no">No</option>
-                </select>
-              </div>
+            <div>
+              <label htmlFor="fecha" className="dashboard-form__label">
+                Fecha
+              </label>
+              <Input
+                id="fecha"
+                name="fecha"
+                type="date"
+                value={formData.fecha}
+                onChange={handleChange}
+                required
+                className="dashboard-form__input"
+              />
             </div>
+          </div>
 
-            <div className="flex gap-4 pt-4">
-              <Button type="submit" className="bg-primary hover:bg-primary/90 text-primary-foreground">
-                Guardar Datos
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setFormData({ zona: "", fecha: "", ph: "", pureza: "", humedad: "", apta: "no" })}
+          <div className="dashboard-form__grid">
+            <div>
+              <label htmlFor="analista" className="dashboard-form__label">
+                Analista responsable
+              </label>
+              <Input
+                id="analista"
+                name="analista"
+                placeholder="Ej: Juan López"
+                value={formData.analista}
+                onChange={handleChange}
+                required
+                className="dashboard-form__input"
+              />
+            </div>
+            <div>
+              <label htmlFor="apta" className="dashboard-form__label">
+                ¿Zona apta?
+              </label>
+              <select
+                id="apta"
+                name="apta"
+                value={formData.apta}
+                onChange={handleChange}
+                className="dashboard-form__input"
               >
-                Limpiar
-              </Button>
+                <option value="si">Sí</option>
+                <option value="no">No</option>
+              </select>
             </div>
-          </form>
-        </CardContent>
-      </Card>
-    </main>
+          </div>
+
+          <div className="dashboard-form__grid">
+            <div>
+              <label htmlFor="ph" className="dashboard-form__label">
+                Resultado de pH
+              </label>
+              <Input
+                id="ph"
+                name="ph"
+                type="number"
+                step="0.1"
+                placeholder="Ej: 7.5"
+                value={formData.ph}
+                onChange={handleChange}
+                required
+                className="dashboard-form__input"
+              />
+            </div>
+            <div>
+              <label htmlFor="pureza" className="dashboard-form__label">
+                Pureza (%)
+              </label>
+              <Input
+                id="pureza"
+                name="pureza"
+                type="number"
+                step="0.1"
+                placeholder="Ej: 85.5"
+                value={formData.pureza}
+                onChange={handleChange}
+                required
+                className="dashboard-form__input"
+              />
+            </div>
+          </div>
+
+          <div className="dashboard-form__grid">
+            <div>
+              <label htmlFor="humedad" className="dashboard-form__label">
+                Humedad (%)
+              </label>
+              <Input
+                id="humedad"
+                name="humedad"
+                type="number"
+                step="0.1"
+                placeholder="Ej: 6.5"
+                value={formData.humedad}
+                onChange={handleChange}
+                required
+                className="dashboard-form__input"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label htmlFor="observaciones" className="dashboard-form__label">
+              Observaciones
+            </label>
+            <textarea
+              id="observaciones"
+              name="observaciones"
+              placeholder="Añade notas relevantes del análisis..."
+              value={formData.observaciones}
+              onChange={handleChange}
+              className="dashboard-form__input"
+              rows={3}
+            />
+          </div>
+
+          <div className="dashboard-form__actions">
+            <Button type="submit" variant="accent" disabled={submitting}>
+              {submitting ? "Guardando..." : "Guardar datos"}
+            </Button>
+            <Button type="button" variant="outline" onClick={resetForm}>
+              Limpiar
+            </Button>
+          </div>
+          {feedback.message && (
+            <p className={`text-sm ${feedback.type === "error" ? "text-red-600" : "text-green-600"}`}>
+              {feedback.message}
+            </p>
+          )}
+        </form>
+      </div>
+    </section>
   )
 }
 

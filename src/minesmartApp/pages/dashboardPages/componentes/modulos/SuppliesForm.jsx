@@ -1,80 +1,190 @@
-import { useState } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../../components/ui/Card"
+import { useEffect, useMemo, useState } from "react"
+import { addDoc, collection, getDocs, orderBy, query, serverTimestamp } from "firebase/firestore"
 import { Input } from "../../../../../components/ui/Input"
-import { Label } from "../../../../../components/ui/Label"
 import { Button } from "../../../../../components/ui/Button"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../../../../components/ui/Table"
+import { ClipboardList, PlusCircle, RefreshCcw } from "lucide-react"
+import { db } from "../../../../../lib/firebase"
+
+const initialSupply = {
+  codigo: "",
+  nombre: "",
+  cantidadActual: "",
+  cantidadMinima: "",
+}
 
 export default function SuppliesInventory() {
-  const [inventory, setInventory] = useState([
-    { codigo: "I-001", nombre: "Agua", cantidadActual: 5000, cantidadMinima: 1000 },
-    { codigo: "I-002", nombre: "Depresores", cantidadActual: 2500, cantidadMinima: 500 },
-    { codigo: "I-003", nombre: "Reguladores de PH", cantidadActual: 1200, cantidadMinima: 300 },
-    { codigo: "I-004", nombre: "Activadores", cantidadActual: 800, cantidadMinima: 200 },
-    { codigo: "I-005", nombre: "Espumantes", cantidadActual: 600, cantidadMinima: 150 },
-    { codigo: "I-006", nombre: "Colectores", cantidadActual: 900, cantidadMinima: 250 },
-  ])
+  const [inventory, setInventory] = useState([])
+  const [newSupply, setNewSupply] = useState(initialSupply)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [submitting, setSubmitting] = useState(false)
 
-  const [newSupply, setNewSupply] = useState({
-    codigo: "",
-    nombre: "",
-    cantidadActual: "",
-    cantidadMinima: "",
-  })
-
-  const handleAddSupply = (e) => {
-    e.preventDefault()
-    if (newSupply.codigo && newSupply.nombre && newSupply.cantidadActual && newSupply.cantidadMinima) {
-      setInventory([...inventory, newSupply])
-      setNewSupply({ codigo: "", nombre: "", cantidadActual: "", cantidadMinima: "" })
+  useEffect(() => {
+    const fetchSupplies = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        const snapshot = await getDocs(query(collection(db, "supplies"), orderBy("codigo")))
+        const items = snapshot.docs.map((doc) => {
+          const data = doc.data()
+          return {
+            id: doc.id,
+            codigo: data.codigo ?? "",
+            nombre: data.nombre ?? "",
+            cantidadActual: Number(data.cantidad_actual ?? data.cantidadActual ?? 0),
+            cantidadMinima: Number(data.cantidad_minima ?? data.cantidadMinima ?? 0),
+          }
+        })
+        setInventory(items)
+      } catch (err) {
+        console.error(err)
+        setError("No se pudo obtener el inventario de insumos.")
+      } finally {
+        setLoading(false)
+      }
     }
-  }
+
+    fetchSupplies()
+  }, [])
 
   const handleInputChange = (e) => {
     const { name, value } = e.target
     setNewSupply((prev) => ({ ...prev, [name]: value }))
   }
 
-  return (
-    <main className="flex-1 overflow-auto p-8 bg-background">
-      <div className="max-w-6xl space-y-6">
-        <Card className="border-border">
-          <CardHeader className="bg-primary text-primary-foreground">
-            <CardTitle className="text-2xl">Inventario de Insumos</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-6">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-accent text-accent-foreground">
-                    <th className="px-4 py-2 text-left font-semibold">Código</th>
-                    <th className="px-4 py-2 text-left font-semibold">Nombre</th>
-                    <th className="px-4 py-2 text-left font-semibold">Cantidad Actual</th>
-                    <th className="px-4 py-2 text-left font-semibold">Cantidad Mínima</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {inventory.map((item, idx) => (
-                    <tr key={idx} className={idx % 2 === 0 ? "bg-muted/50" : "bg-background"}>
-                      <td className="px-4 py-2">{item.codigo}</td>
-                      <td className="px-4 py-2">{item.nombre}</td>
-                      <td className="px-4 py-2">{item.cantidadActual}</td>
-                      <td className="px-4 py-2">{item.cantidadMinima}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
+  const resetForm = () => {
+    setNewSupply(initialSupply)
+  }
 
-        <Card className="border-border">
-          <CardHeader className="bg-primary text-primary-foreground">
-            <CardTitle className="text-lg">Agregar Nuevo Insumo</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-6">
-            <form onSubmit={handleAddSupply} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="codigo">Código</Label>
+  const handleAddSupply = async (e) => {
+    e.preventDefault()
+    if (!newSupply.codigo || !newSupply.nombre || !newSupply.cantidadActual || !newSupply.cantidadMinima) return
+
+    setSubmitting(true)
+    setError(null)
+
+    try {
+      const payload = {
+        codigo: newSupply.codigo,
+        nombre: newSupply.nombre,
+        cantidad_actual: Number(newSupply.cantidadActual),
+        cantidad_minima: Number(newSupply.cantidadMinima),
+        created_at: serverTimestamp(),
+      }
+
+      const docRef = await addDoc(collection(db, "supplies"), payload)
+      setInventory((prev) => [
+        ...prev,
+        {
+          id: docRef.id,
+          codigo: payload.codigo,
+          nombre: payload.nombre,
+          cantidadActual: payload.cantidad_actual,
+          cantidadMinima: payload.cantidad_minima,
+        },
+      ])
+      resetForm()
+    } catch (err) {
+      console.error(err)
+      setError("No se pudo agregar el insumo. Intenta nuevamente.")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const totals = useMemo(() => {
+    const totalActual = inventory.reduce((acc, item) => acc + Number(item.cantidadActual), 0)
+    const totalMinimo = inventory.reduce((acc, item) => acc + Number(item.cantidadMinima), 0)
+    const cobertura = totalMinimo === 0 ? 0 : Math.round((totalActual / totalMinimo) * 100)
+    return { totalActual, totalMinimo, cobertura }
+  }, [inventory])
+
+  return (
+    <div className="flex-1 overflow-auto">
+      <section className="dashboard-report">
+        <div className="dashboard-report__container">
+          <header className="dashboard-report__header">
+            <div className="dashboard-report__title-block">
+              <h2 className="dashboard-report__title">Inventario de insumos</h2>
+            </div>
+            <span className="dashboard-report__badge inline-flex items-center gap-2">
+              <ClipboardList size={18} />
+              Bodega
+            </span>
+          </header>
+
+          <div className="dashboard-report__metrics">
+            <div className="dashboard-report__metric">
+              <span className="dashboard-report__metric-label">Insumos activos</span>
+              <span className="dashboard-report__metric-value">{inventory.length}</span>
+              <span>Referencias registradas en Firestore</span>
+            </div>
+            <div className="dashboard-report__metric dashboard-report__metric--alt">
+              <span className="dashboard-report__metric-label">Cobertura</span>
+              <span className="dashboard-report__metric-value">{totals.cobertura}%</span>
+              <span>Comparado con el stock mínimo</span>
+            </div>
+            <div className="dashboard-report__metric">
+              <span className="dashboard-report__metric-label">Total actual</span>
+              <span className="dashboard-report__metric-value">{totals.totalActual}</span>
+              <span>Unidades disponibles</span>
+            </div>
+          </div>
+
+          <div className="dashboard-report__table">
+            {loading && <p className="text-sm text-muted-foreground">Cargando inventario…</p>}
+            {error && <p className="text-sm text-red-600">{error}</p>}
+            {!loading && !error && inventory.length === 0 && (
+              <p className="text-sm text-muted-foreground">No hay insumos registrados todavía.</p>
+            )}
+
+            {!loading && !error && inventory.length > 0 && (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Código</TableHead>
+                    <TableHead>Nombre</TableHead>
+                    <TableHead>Cantidad actual</TableHead>
+                    <TableHead>Cantidad mínima</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {inventory.map((item) => (
+                    <TableRow key={item.id ?? item.codigo}>
+                      <TableCell>{item.codigo}</TableCell>
+                      <TableCell>{item.nombre}</TableCell>
+                      <TableCell>{item.cantidadActual}</TableCell>
+                      <TableCell>{item.cantidadMinima}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+
+          <footer className="dashboard-report__footer">
+            <div>
+              Stock actual: {totals.totalActual} · Stock mínimo requerido: {totals.totalMinimo}
+            </div>
+            <div className="dashboard-report__actions">
+              <Button variant="secondary" size="sm" className="inline-flex items-center gap-2" onClick={resetForm}>
+                <RefreshCcw size={16} />
+                Limpiar formulario
+              </Button>
+            </div>
+          </footer>
+        </div>
+      </section>
+
+      <section className="dashboard-form">
+        <div className="dashboard-form__card">
+          <form onSubmit={handleAddSupply} className="space-y-5">
+            <div className="dashboard-form__grid">
+              <div>
+                <label htmlFor="codigo" className="dashboard-form__label">
+                  Código
+                </label>
                 <Input
                   id="codigo"
                   name="codigo"
@@ -82,10 +192,13 @@ export default function SuppliesInventory() {
                   value={newSupply.codigo}
                   onChange={handleInputChange}
                   required
+                  className="dashboard-form__input"
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="nombre">Nombre del Insumo</Label>
+              <div>
+                <label htmlFor="nombre" className="dashboard-form__label">
+                  Nombre del insumo
+                </label>
                 <Input
                   id="nombre"
                   name="nombre"
@@ -93,10 +206,16 @@ export default function SuppliesInventory() {
                   value={newSupply.nombre}
                   onChange={handleInputChange}
                   required
+                  className="dashboard-form__input"
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="cantidadActual">Cantidad Actual</Label>
+            </div>
+
+            <div className="dashboard-form__grid">
+              <div>
+                <label htmlFor="cantidadActual" className="dashboard-form__label">
+                  Cantidad actual
+                </label>
                 <Input
                   id="cantidadActual"
                   name="cantidadActual"
@@ -105,10 +224,13 @@ export default function SuppliesInventory() {
                   value={newSupply.cantidadActual}
                   onChange={handleInputChange}
                   required
+                  className="dashboard-form__input"
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="cantidadMinima">Cantidad Mínima</Label>
+              <div>
+                <label htmlFor="cantidadMinima" className="dashboard-form__label">
+                  Cantidad mínima
+                </label>
                 <Input
                   id="cantidadMinima"
                   name="cantidadMinima"
@@ -117,15 +239,22 @@ export default function SuppliesInventory() {
                   value={newSupply.cantidadMinima}
                   onChange={handleInputChange}
                   required
+                  className="dashboard-form__input"
                 />
               </div>
-              <Button type="submit" className="bg-primary hover:bg-primary/90 text-primary-foreground md:col-span-2">
-                Agregar Insumo
+            </div>
+
+            <div className="dashboard-form__actions">
+              <Button type="submit" variant="accent" disabled={submitting} className="inline-flex items-center gap-2">
+                <PlusCircle size={18} />
+                {submitting ? "Guardando..." : "Agregar insumo"}
               </Button>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
-    </main>
+            </div>
+
+            {error && <p className="text-sm text-red-600">{error}</p>}
+          </form>
+        </div>
+      </section>
+    </div>
   )
 }

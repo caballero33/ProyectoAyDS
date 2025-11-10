@@ -1,0 +1,36 @@
+.ms-card {
+  background: var(--surface);
+  color: var(--surface-foreground);
+  border-radius: 1.25rem;
+  border: 1px solid rgba(30, 44, 92, 0.12);
+  box-shadow: 0 20px 45px rgba(30, 44, 92, 0.08);
+  overflow: hidden;
+}
+
+.ms-card--flat {
+  box-shadow: none;
+}
+
+.ms-card__header {
+  padding: 1.5rem 1.75rem;
+  border-bottom: 1px solid rgba(30, 44, 92, 0.08);
+  background: linear-gradient(120deg, rgba(30, 44, 92, 0.04), rgba(30, 44, 92, 0));
+}
+
+.ms-card__content {
+  padding: 1.75rem;
+}
+
+.ms-card__title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.ms-card__description {
+  font-size: 0.92rem;
+  color: var(--muted-foreground);
+  margin-top: 0.35rem;
+  line-height: 1.45;
+}
+
