@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { collection, getDocs, orderBy, query } from "firebase/firestore"
 import { Input } from "../../../../../components/ui/Input"
 import { Button } from "../../../../../components/ui/Button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../../../../components/ui/Table"
-import { Calendar, MapPin, RefreshCcw } from "lucide-react"
+import { Calendar, MapPin, Printer, RefreshCcw } from "lucide-react"
 import { db } from "../../../../../lib/firebase"
 
 const ITEMS_PER_PAGE = 10
@@ -13,13 +13,43 @@ const formatNumber = (value) => {
   return Number(value).toLocaleString("es-PE", { maximumFractionDigits: 2 })
 }
 
+const COMPANY_LOGO_URL = "https://res.cloudinary.com/dcm2dsjov/image/upload/v1762741683/images_gyxzku.png"
+
+const normalizeDateInput = (value) => {
+  if (!value) return null
+  const direct = new Date(value)
+  if (!Number.isNaN(direct.getTime())) {
+    direct.setHours(0, 0, 0, 0)
+    return direct
+  }
+  const fallback = new Date(`${value}T00:00:00`)
+  if (Number.isNaN(fallback.getTime())) return null
+  fallback.setHours(0, 0, 0, 0)
+  return fallback
+}
+
+const isWithinRange = (dateValue, startDate, endDate) => {
+  if (!startDate && !endDate) return true
+  const date = normalizeDateInput(dateValue)
+  if (!date) return false
+  if (startDate && date < startDate) return false
+  if (endDate) {
+    const endOfDay = new Date(endDate)
+    endOfDay.setHours(23, 59, 59, 999)
+    if (date > endOfDay) return false
+  }
+  return true
+}
+
 export default function AnalisisSuelosReports() {
   const [records, setRecords] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [filterZone, setFilterZone] = useState("")
-  const [filterDate, setFilterDate] = useState("")
+  const [filterStartDate, setFilterStartDate] = useState("")
+  const [filterEndDate, setFilterEndDate] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
+  const reportRef = useRef(null)
 
   useEffect(() => {
     const fetchRecords = async () => {
@@ -54,12 +84,14 @@ export default function AnalisisSuelosReports() {
   }, [])
 
   const filteredData = useMemo(() => {
+    const start = normalizeDateInput(filterStartDate)
+    const end = normalizeDateInput(filterEndDate)
     return records.filter((item) => {
       const matchesZone = filterZone ? item.zona.toLowerCase().includes(filterZone.toLowerCase()) : true
-      const matchesDate = filterDate ? (item.fecha ?? "").startsWith(filterDate) : true
+      const matchesDate = isWithinRange(item.fecha, start, end)
       return matchesZone && matchesDate
     })
-  }, [records, filterZone, filterDate])
+  }, [records, filterZone, filterStartDate, filterEndDate])
 
   const totalPages = Math.max(1, Math.ceil(filteredData.length / ITEMS_PER_PAGE))
   const paginatedData = filteredData.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE)
@@ -74,12 +106,37 @@ export default function AnalisisSuelosReports() {
 
   const resetFilters = () => {
     setFilterZone("")
-    setFilterDate("")
+    setFilterStartDate("")
+    setFilterEndDate("")
     setCurrentPage(1)
   }
 
+  const zoneLabel = filterZone ? `Zona: ${filterZone}` : "Todas las zonas"
+  const rangeLabel = (() => {
+    const start = filterStartDate ? new Date(filterStartDate).toLocaleDateString("es-PE") : null
+    const end = filterEndDate ? new Date(filterEndDate).toLocaleDateString("es-PE") : null
+    if (start && end) return `Rango: ${start} - ${end}`
+    if (start) return `Desde: ${start}`
+    if (end) return `Hasta: ${end}`
+    return "Todas las fechas"
+  })()
+  const issuedOn = useMemo(() => new Date().toLocaleDateString("es-PE"), [])
+
+  const handlePrint = () => {
+    const node = reportRef.current
+    if (!node) {
+      window.print()
+      return
+    }
+    node.classList.add("print-scope")
+    window.print()
+    setTimeout(() => {
+      node.classList.remove("print-scope")
+    }, 0)
+  }
+
   return (
-    <section className="dashboard-report">
+    <section className="dashboard-report" ref={reportRef}>
       <div className="dashboard-report__filters">
         <span className="inline-flex items-center gap-2 dashboard-report__filter-chip">
           <MapPin size={16} />
@@ -96,12 +153,25 @@ export default function AnalisisSuelosReports() {
         </span>
         <span className="inline-flex items-center gap-2 dashboard-report__filter-chip">
           <Calendar size={16} />
-          <span>Fecha</span>
+          <span>Desde</span>
           <Input
             type="date"
-            value={filterDate}
+            value={filterStartDate}
             onChange={(e) => {
-              setFilterDate(e.target.value)
+              setFilterStartDate(e.target.value)
+              setCurrentPage(1)
+            }}
+            className="dashboard-form__input"
+          />
+        </span>
+        <span className="inline-flex items-center gap-2 dashboard-report__filter-chip">
+          <Calendar size={16} />
+          <span>Hasta</span>
+          <Input
+            type="date"
+            value={filterEndDate}
+            onChange={(e) => {
+              setFilterEndDate(e.target.value)
               setCurrentPage(1)
             }}
             className="dashboard-form__input"
@@ -111,6 +181,23 @@ export default function AnalisisSuelosReports() {
           <RefreshCcw size={16} />
           Limpiar filtros
         </Button>
+        <div className="dashboard-report__actions">
+          <Button variant="accent" className="inline-flex items-center gap-2" onClick={handlePrint}>
+            <Printer size={16} />
+            Imprimir
+          </Button>
+        </div>
+      </div>
+
+      <div className="report-print-header">
+        <img src={COMPANY_LOGO_URL} alt="Aura Minosa" className="report-print-logo" />
+        <div className="report-print-meta">
+          <h1 className="report-print-title">Reporte de resultados de análisis de suelo</h1>
+          <span className="report-print-subtitle">
+            {zoneLabel} · {rangeLabel}
+          </span>
+          <span className="report-print-subtitle">Emitido: {issuedOn}</span>
+        </div>
       </div>
 
       <div className="dashboard-report__container">

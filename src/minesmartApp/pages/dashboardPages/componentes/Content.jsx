@@ -152,8 +152,8 @@ export default function Content({ module }) {
   return (
     <main className="dashboard-content">
       {module === "soil-data" && <AnalisisSuelosForm />}
-      {module === "soil-reports" && <AnalisisSuelosReports />}
       {module === "extraction-data" && <ExtraccionForm />}
+      {module === "extraction-soil-reports" && <AnalisisSuelosReports />}
       {module === "lab-data" && <LabForm />}
       {module === "plant-data" && <PlantaForm />}
       {module === "plant-reports" && <PlantaReports />}

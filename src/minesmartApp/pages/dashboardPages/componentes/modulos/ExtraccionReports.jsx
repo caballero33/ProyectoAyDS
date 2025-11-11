@@ -8,12 +8,39 @@ import { db } from "../../../../../lib/firebase"
 
 const ITEMS_PER_PAGE = 10
 
+const normalizeDateInput = (value) => {
+  if (!value) return null
+  const direct = new Date(value)
+  if (!Number.isNaN(direct.getTime())) {
+    direct.setHours(0, 0, 0, 0)
+    return direct
+  }
+  const fallback = new Date(`${value}T00:00:00`)
+  if (Number.isNaN(fallback.getTime())) return null
+  fallback.setHours(0, 0, 0, 0)
+  return fallback
+}
+
+const isWithinRange = (value, start, end) => {
+  if (!start && !end) return true
+  const date = normalizeDateInput(value)
+  if (!date) return false
+  if (start && date < start) return false
+  if (end) {
+    const endOfDay = new Date(end)
+    endOfDay.setHours(23, 59, 59, 999)
+    if (date > endOfDay) return false
+  }
+  return true
+}
+
 export default function ExtraccionReports() {
   const [records, setRecords] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [filtroZona, setFiltroZona] = useState("")
-  const [filtroFecha, setFiltroFecha] = useState("")
+  const [filtroFechaDesde, setFiltroFechaDesde] = useState("")
+  const [filtroFechaHasta, setFiltroFechaHasta] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
 
   useEffect(() => {
@@ -48,12 +75,14 @@ export default function ExtraccionReports() {
   }, [])
 
   const filteredData = useMemo(() => {
+    const start = normalizeDateInput(filtroFechaDesde)
+    const end = normalizeDateInput(filtroFechaHasta)
     return records.filter((item) => {
       const zonaMatch = filtroZona ? item.zona.toLowerCase().includes(filtroZona.toLowerCase()) : true
-      const fechaMatch = filtroFecha ? (item.fecha ?? "").includes(filtroFecha) : true
+      const fechaMatch = isWithinRange(item.fecha, start, end)
       return zonaMatch && fechaMatch
     })
-  }, [records, filtroZona, filtroFecha])
+  }, [records, filtroZona, filtroFechaDesde, filtroFechaHasta])
 
   const totalPages = Math.max(1, Math.ceil(filteredData.length / ITEMS_PER_PAGE))
   const paginatedData = filteredData.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE)
@@ -68,7 +97,8 @@ export default function ExtraccionReports() {
 
   const clearFilters = () => {
     setFiltroZona("")
-    setFiltroFecha("")
+    setFiltroFechaDesde("")
+    setFiltroFechaHasta("")
     setCurrentPage(1)
   }
 
@@ -91,13 +121,27 @@ export default function ExtraccionReports() {
         </span>
         <span className="inline-flex items-center gap-2 dashboard-report__filter-chip">
           <Calendar size={16} />
-          <span>Fecha</span>
+          <span>Desde</span>
           <Input
-            id="filtro-fecha"
-            placeholder="YYYY-MM-DD"
-            value={filtroFecha}
+            id="filtro-fecha-desde"
+            type="date"
+            value={filtroFechaDesde}
             onChange={(e) => {
-              setFiltroFecha(e.target.value)
+              setFiltroFechaDesde(e.target.value)
+              setCurrentPage(1)
+            }}
+            className="dashboard-form__input"
+          />
+        </span>
+        <span className="inline-flex items-center gap-2 dashboard-report__filter-chip">
+          <Calendar size={16} />
+          <span>Hasta</span>
+          <Input
+            id="filtro-fecha-hasta"
+            type="date"
+            value={filtroFechaHasta}
+            onChange={(e) => {
+              setFiltroFechaHasta(e.target.value)
               setCurrentPage(1)
             }}
             className="dashboard-form__input"

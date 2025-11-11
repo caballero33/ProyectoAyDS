@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { collection, getDocs, orderBy, query } from "firebase/firestore"
 import {
   BarChart,
@@ -18,6 +18,7 @@ import { Printer } from "lucide-react"
 import { db } from "../../../../../lib/firebase"
 
 const COLORS = ["#2B5E7E", "#EC7E3A", "#22C55E", "#6366F1", "#14B8A6", "#F97316", "#A855F7"]
+const COMPANY_LOGO_URL = "https://res.cloudinary.com/dcm2dsjov/image/upload/v1762741683/images_gyxzku.png"
 
 const formatNumber = (value, opts = {}) => {
   if (value === null || value === undefined || Number.isNaN(value)) return "—"
@@ -80,6 +81,7 @@ export default function GerenciaReports() {
     consumptions: [],
     supplies: [],
   })
+  const reportRef = useRef(null)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -185,13 +187,18 @@ export default function GerenciaReports() {
           goldStdDev: "—",
         },
         chartData: [],
+        tableRows: [],
         topLotes: { gold: "—", copper: "—", goldLow: "—", copperLow: "—" },
         periodLabel: "Periodo: sin registros",
         lotesEvaluados: 0,
       }
     }
 
-    const runsInPeriod = runsWithPurity
+    const runsInPeriod = runsWithPurity.sort((a, b) => {
+      const aTime = a.runDate ? a.runDate.getTime() : 0
+      const bTime = b.runDate ? b.runDate.getTime() : 0
+      return bTime - aTime
+    })
     const periodLabelStr = `Periodo: ${startWindow.toLocaleDateString("es-PE")} - ${today.toLocaleDateString("es-PE")}`
 
     const lotAggregation = new Map()
@@ -265,6 +272,14 @@ export default function GerenciaReports() {
         goldStdDev: goldValues.length ? `${goldStd.toFixed(2)}%` : "—",
       },
       chartData,
+      tableRows: runsInPeriod.map((run) => ({
+        id: run.id,
+        lote: run.lote || run.id.slice(0, 6),
+        material: run.material,
+        pureza: Number.isFinite(run.pureza) ? `${run.pureza.toFixed(2)}%` : "—",
+        fecha: run.fecha ? formatDate(run.fecha) : "—",
+        operador: run.operador || "—",
+      })),
       topLotes: {
         gold: maxGold?.lote ?? "—",
         copper: maxCopper?.lote ?? "—",
@@ -324,14 +339,22 @@ export default function GerenciaReports() {
     )
 
     return {
-    summary: {
+      summary: {
         monthlyProduction: lastTotal ? `${formatNumber(lastTotal)} t` : "—",
-        monthlyVariation: previousTotal ? `${(((lastTotal - previousTotal) / previousTotal) * 100).toFixed(1)}%` : "—",
+        monthlyVariation: previousTotal
+          ? `${(((lastTotal - previousTotal) / previousTotal) * 100).toFixed(1)}%`
+          : "—",
         currentInventory: suppliesInventory ? `${formatNumber(suppliesInventory)} u.` : "—",
         goldProduction: goldProduction ? `${formatNumber(goldProduction)} t` : "—",
         copperProduction: copperProduction ? `${formatNumber(copperProduction)} t` : "—",
-    },
+      },
       chartData,
+      tableRows: chartData.map((item) => ({
+        mes: item.mes,
+        cobre: `${formatNumber(item.cobre)} t`,
+        oro: `${formatNumber(item.oro)} t`,
+        total: `${formatNumber(item.total)} t`,
+      })),
       meta: [
         `Lotes registrados: ${data.runs.length}`,
         periodLabel(data.runs.map((item) => item.fecha).filter(Boolean)),
@@ -410,7 +433,7 @@ export default function GerenciaReports() {
         : "—"
 
     return {
-      summary: {
+    summary: {
         totalConsumed: totalConsumed ? `${formatNumber(totalConsumed)} ${unidadPrincipal}` : "—",
         mostUsed: mostUsedLabel,
         monthlyVariation,
@@ -418,6 +441,10 @@ export default function GerenciaReports() {
         otherSupplies: otherSupplies ? `${formatNumber(otherSupplies)} ${unidadPrincipal}` : "—",
       },
       chartData,
+      tableRows: sortedSupplies.map((item) => ({
+        name: item.name,
+        total: `${formatNumber(item.total)} ${item.unidad || unidadPrincipal}`,
+      })),
       meta: [
         `Movimientos: ${data.consumptions.length}`,
         `Lotes con consumo: ${lotesConConsumo.size}`,
@@ -477,6 +504,28 @@ export default function GerenciaReports() {
   }
 
   const activeConfig = tabConfig[reportType]
+  const reportTitles = {
+    machinery: "Reporte de fallas en maquinaria",
+    purity: "Reporte de pureza promedio quincenal",
+    production: "Reporte de producción total del mes",
+    supplies: "Reporte de insumos con mayor consumo por mes",
+  }
+  const reportTitle = reportTitles[reportType]
+  const issuedOn = useMemo(() => new Date().toLocaleDateString("es-PE"), [])
+  const printMetaLine = activeConfig?.meta?.filter(Boolean).join(" · ")
+
+  const handlePrint = () => {
+    const node = reportRef.current
+    if (!node) {
+      window.print()
+      return
+    }
+    node.classList.add("print-scope")
+    window.print()
+    setTimeout(() => {
+      node.classList.remove("print-scope")
+    }, 0)
+  }
 
   const renderMachinery = () => (
     <div className="dashboard-card-grid">
@@ -517,30 +566,31 @@ export default function GerenciaReports() {
         )}
         <div className="dashboard-analytics-footer">
           <span>Última sincronización: {formatDate(new Date())}</span>
-          <Button variant="accent" className="inline-flex items-center gap-2" onClick={() => window.print()}>
+          <Button variant="accent" className="inline-flex items-center gap-2" onClick={handlePrint}>
             <Printer size={16} />
             Imprimir
           </Button>
-                </div>
-                </div>
-              </div>
+        </div>
+      </div>
+    </div>
   )
 
   const renderPurity = () => (
-    <div className="dashboard-card-grid">
-      <div className="dashboard-analytics-card" style={{ minHeight: 0 }}>
-        <div className="dashboard-analytics-card__header">
-          <h3 className="dashboard-analytics-card__title">Pureza por lote</h3>
-          <span className="dashboard-analytics-card__description">Comparación de oro vs. cobre por bloque.</span>
+    <>
+      <div className="dashboard-card-grid">
+        <div className="dashboard-analytics-card" style={{ minHeight: 0 }}>
+          <div className="dashboard-analytics-card__header">
+            <h3 className="dashboard-analytics-card__title">Pureza por lote</h3>
+            <span className="dashboard-analytics-card__description">Comparación de oro vs. cobre por bloque.</span>
                 </div>
-        <div style={{ height: 320 }}>
-          {purityStats.chartData.length === 0 ? (
-            <p className="text-sm text-muted-foreground p-4">No hay análisis de laboratorio registrados.</p>
-          ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={purityStats.chartData}>
+          <div style={{ height: 320 }}>
+            {purityStats.chartData.length === 0 ? (
+              <p className="text-sm text-muted-foreground p-4">No hay análisis de laboratorio registrados.</p>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={purityStats.chartData}>
                         <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="lote" label={{ value: "Bloques", position: "insideBottomRight", offset: -5 }} />
+                  <XAxis dataKey="lote" label={{ value: "Bloques", position: "insideBottomRight", offset: -5 }} />
                         <YAxis label={{ value: "Pureza (%)", angle: -90, position: "insideLeft" }} />
                         <Tooltip />
                         <Legend />
@@ -548,63 +598,99 @@ export default function GerenciaReports() {
                         <Bar dataKey="cobre" fill="#EC7E3A" name="Cobre" />
                       </BarChart>
                     </ResponsiveContainer>
-          )}
+            )}
                   </div>
-        <div className="dashboard-analytics-footer">
-          <span>Lotes evaluados: {purityStats.chartData.length}</span>
-          <Button variant="accent" className="inline-flex items-center gap-2" onClick={() => window.print()}>
-            <Printer size={16} />
-            Imprimir
-          </Button>
-                  </div>
+          <div className="dashboard-analytics-footer">
+            <span>Lotes evaluados: {purityStats.chartData.length}</span>
+            <Button variant="accent" className="inline-flex items-center gap-2" onClick={handlePrint}>
+              <Printer size={16} />
+              Imprimir
+            </Button>
+          </div>
                 </div>
+        <div className="dashboard-analytics-card">
+          <div className="dashboard-analytics-card__header">
+            <h3 className="dashboard-analytics-card__title">Lotes destacados</h3>
+          </div>
+          <div className="dashboard-analytics-card__description">
+            Referencias con mejor y menor desempeño en la quincena.
+              </div>
+          <table className="dashboard-analytics-table">
+            <tbody>
+              <tr>
+                <th>Oro - mayor pureza</th>
+                <td>{purityStats.topLotes.gold}</td>
+              </tr>
+              <tr>
+                <th>Cobre - mayor pureza</th>
+                <td>{purityStats.topLotes.copper}</td>
+              </tr>
+              <tr>
+                <th>Oro - menor pureza</th>
+                <td>{purityStats.topLotes.goldLow}</td>
+              </tr>
+              <tr>
+                <th>Cobre - menor pureza</th>
+                <td>{purityStats.topLotes.copperLow}</td>
+              </tr>
+            </tbody>
+          </table>
+              </div>
+            </div>
       <div className="dashboard-analytics-card">
         <div className="dashboard-analytics-card__header">
-          <h3 className="dashboard-analytics-card__title">Lotes destacados</h3>
-              </div>
-        <div className="dashboard-analytics-card__description">
-          Referencias con mejor y menor desempeño en la quincena.
-              </div>
-        <table className="dashboard-analytics-table">
-          <tbody>
-            <tr>
-              <th>Oro - mayor pureza</th>
-              <td>{purityStats.topLotes.gold}</td>
-            </tr>
-            <tr>
-              <th>Cobre - mayor pureza</th>
-              <td>{purityStats.topLotes.copper}</td>
-            </tr>
-            <tr>
-              <th>Oro - menor pureza</th>
-              <td>{purityStats.topLotes.goldLow}</td>
-            </tr>
-            <tr>
-              <th>Cobre - menor pureza</th>
-              <td>{purityStats.topLotes.copperLow}</td>
-            </tr>
-          </tbody>
-        </table>
-            </div>
+          <h3 className="dashboard-analytics-card__title">Detalle de lotes analizados</h3>
+          <span className="dashboard-analytics-card__description">
+            Información base utilizada para el cálculo quincenal.
+          </span>
           </div>
+        {purityStats.tableRows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No hay registros disponibles.</p>
+        ) : (
+          <table className="dashboard-analytics-table">
+            <thead>
+              <tr>
+                <th>Lote</th>
+                <th>Material</th>
+                <th>Pureza</th>
+                <th>Fecha</th>
+                <th>Operador</th>
+              </tr>
+            </thead>
+            <tbody>
+              {purityStats.tableRows.map((row) => (
+                <tr key={row.id}>
+                  <td>{row.lote}</td>
+                  <td>{row.material}</td>
+                  <td>{row.pureza}</td>
+                  <td>{row.fecha}</td>
+                  <td>{row.operador}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+                </div>
+    </>
   )
 
   const renderProduction = () => (
-    <div className="dashboard-card-grid">
-      <div className="dashboard-analytics-card" style={{ minHeight: 0 }}>
-        <div className="dashboard-analytics-card__header">
-          <h3 className="dashboard-analytics-card__title">Producción total mensual</h3>
-          <span className="dashboard-analytics-card__description">Desempeño por mineral y consolidado.</span>
+    <>
+      <div className="dashboard-card-grid">
+        <div className="dashboard-analytics-card" style={{ minHeight: 0 }}>
+          <div className="dashboard-analytics-card__header">
+            <h3 className="dashboard-analytics-card__title">Producción total mensual</h3>
+            <span className="dashboard-analytics-card__description">Desempeño por mineral y consolidado.</span>
                 </div>
-        <div style={{ height: 320 }}>
-          {productionStats.chartData.length === 0 ? (
-            <p className="text-sm text-muted-foreground p-4">No hay lotes de producción registrados.</p>
-          ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={productionStats.chartData}>
+          <div style={{ height: 320 }}>
+            {productionStats.chartData.length === 0 ? (
+              <p className="text-sm text-muted-foreground p-4">No hay lotes de producción registrados.</p>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={productionStats.chartData}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="mes" label={{ value: "Meses", position: "insideBottomRight", offset: -5 }} />
-                <YAxis label={{ value: "Toneladas", angle: -90, position: "insideLeft" }} />
+                  <YAxis label={{ value: "Toneladas", angle: -90, position: "insideLeft" }} />
                         <Tooltip />
                         <Legend />
                         <Bar dataKey="cobre" fill="#2B5E7E" name="Cobre" />
@@ -612,87 +698,150 @@ export default function GerenciaReports() {
                         <Bar dataKey="total" fill="#F59E0B" name="Total" />
                       </BarChart>
                     </ResponsiveContainer>
-          )}
+            )}
                   </div>
         <div className="dashboard-analytics-footer">
           <span>Promedio mensual: {productionStats.summary.monthlyProduction}</span>
-          <Button variant="accent" className="inline-flex items-center gap-2" onClick={() => window.print()}>
+          <Button variant="accent" className="inline-flex items-center gap-2" onClick={handlePrint}>
             <Printer size={16} />
             Imprimir
           </Button>
-                  </div>
+        </div>
                 </div>
               </div>
+      <div className="dashboard-analytics-card">
+        <div className="dashboard-analytics-card__header">
+          <h3 className="dashboard-analytics-card__title">Detalle por mes</h3>
+          <span className="dashboard-analytics-card__description">
+            Totales utilizados para el consolidado mensual.
+          </span>
+              </div>
+        {productionStats.tableRows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No hay registros disponibles.</p>
+        ) : (
+          <table className="dashboard-analytics-table">
+            <thead>
+              <tr>
+                <th>Mes</th>
+                <th>Cobre</th>
+                <th>Oro</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {productionStats.tableRows.map((row) => (
+                <tr key={row.mes}>
+                  <td>{row.mes}</td>
+                  <td>{row.cobre}</td>
+                  <td>{row.oro}</td>
+                  <td>{row.total}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+                </div>
+    </>
   )
 
   const renderSupplies = () => (
-    <div className="dashboard-card-grid">
-      <div className="dashboard-analytics-card" style={{ minHeight: 0 }}>
-        <div className="dashboard-analytics-card__header">
-          <h3 className="dashboard-analytics-card__title">Distribución de consumo</h3>
-          <span className="dashboard-analytics-card__description">Participación por tipo de insumo en el periodo.</span>
-              </div>
-        <div style={{ height: 320 }}>
-          {suppliesStats.chartData.length === 0 ? (
-            <p className="text-sm text-muted-foreground p-4">No hay consumos registrados.</p>
-          ) : (
-            <ResponsiveContainer width="100%" height="100%">
+    <>
+      <div className="dashboard-card-grid">
+        <div className="dashboard-analytics-card" style={{ minHeight: 0 }}>
+          <div className="dashboard-analytics-card__header">
+            <h3 className="dashboard-analytics-card__title">Distribución de consumo</h3>
+            <span className="dashboard-analytics-card__description">Participación por tipo de insumo en el periodo.</span>
+                </div>
+          <div style={{ height: 320 }}>
+            {suppliesStats.chartData.length === 0 ? (
+              <p className="text-sm text-muted-foreground p-4">No hay consumos registrados.</p>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie
-                  data={suppliesStats.chartData}
+                    data={suppliesStats.chartData}
                           cx="50%"
                           cy="50%"
-                  labelLine
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(1)}%`}
-                  outerRadius={110}
+                    labelLine
+                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(1)}%`}
+                    outerRadius={110}
                           dataKey="value"
                         >
-                  {suppliesStats.chartData.map((entry, index) => (
+                    {suppliesStats.chartData.map((entry, index) => (
                             <Cell key={`cell-${index}`} fill={entry.color} />
                           ))}
                         </Pie>
                         <Tooltip />
                       </PieChart>
                     </ResponsiveContainer>
-          )}
+            )}
+          </div>
         </div>
-      </div>
-      <div className="dashboard-analytics-card">
-        <div className="dashboard-analytics-card__header">
-          <h3 className="dashboard-analytics-card__title">Resumen operativo</h3>
-        </div>
-        <div className="dashboard-analytics-card__description">
-          Indicadores clave para reposición y planificación de compras.
+        <div className="dashboard-analytics-card">
+          <div className="dashboard-analytics-card__header">
+            <h3 className="dashboard-analytics-card__title">Resumen operativo</h3>
+          </div>
+          <div className="dashboard-analytics-card__description">
+            Indicadores clave para reposición y planificación de compras.
                   </div>
-        <table className="dashboard-analytics-table">
-          <tbody>
-            <tr>
-              <th>Total consumido</th>
-              <td>{suppliesStats.summary.totalConsumed}</td>
-            </tr>
-            <tr>
-              <th>Insumo más utilizado</th>
-              <td>{suppliesStats.summary.mostUsed}</td>
-            </tr>
-            <tr>
-              <th>Variación mensual</th>
-              <td>{suppliesStats.summary.monthlyVariation}</td>
-            </tr>
-            <tr>
-              <th>Consumo otros insumos</th>
-              <td>{suppliesStats.summary.otherSupplies}</td>
-            </tr>
-          </tbody>
-        </table>
+          <table className="dashboard-analytics-table">
+            <tbody>
+              <tr>
+                <th>Total consumido</th>
+                <td>{suppliesStats.summary.totalConsumed}</td>
+              </tr>
+              <tr>
+                <th>Insumo más utilizado</th>
+                <td>{suppliesStats.summary.mostUsed}</td>
+              </tr>
+              <tr>
+                <th>Variación mensual</th>
+                <td>{suppliesStats.summary.monthlyVariation}</td>
+              </tr>
+              <tr>
+                <th>Consumo otros insumos</th>
+                <td>{suppliesStats.summary.otherSupplies}</td>
+              </tr>
+            </tbody>
+          </table>
         <div className="dashboard-analytics-footer">
           <span>Promedio por lote: {suppliesStats.summary.avgPerBatch}</span>
-          <Button variant="accent" className="inline-flex items-center gap-2" onClick={() => window.print()}>
+          <Button variant="accent" className="inline-flex items-center gap-2" onClick={handlePrint}>
             <Printer size={16} />
             Imprimir
           </Button>
-                  </div>
+        </div>
                 </div>
               </div>
+      <div className="dashboard-analytics-card">
+        <div className="dashboard-analytics-card__header">
+          <h3 className="dashboard-analytics-card__title">Detalle de consumos</h3>
+          <span className="dashboard-analytics-card__description">
+            Consolidado por insumo utilizado en los reportes.
+          </span>
+        </div>
+        {suppliesStats.tableRows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No hay consumos registrados.</p>
+        ) : (
+          <table className="dashboard-analytics-table">
+            <thead>
+              <tr>
+                <th>Insumo</th>
+                <th>Total consumido</th>
+              </tr>
+            </thead>
+            <tbody>
+              {suppliesStats.tableRows.map((row) => (
+                <tr key={row.name}>
+                  <td>{row.name}</td>
+                  <td>{row.total}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </>
   )
 
   const renderContent = () => {
@@ -711,7 +860,7 @@ export default function GerenciaReports() {
   }
 
   return (
-    <section className="dashboard-report">
+    <section className="dashboard-report" ref={reportRef}>
       <div className="dashboard-hero-block">
         <div className="dashboard-hero-tabs">
           {tabs.map((tab) => (
@@ -727,6 +876,15 @@ export default function GerenciaReports() {
         </div>
               </div>
 
+      <div className="report-print-header">
+        <img src={COMPANY_LOGO_URL} alt="Aura Minosa" className="report-print-logo" />
+        <div className="report-print-meta">
+          <h1 className="report-print-title">{reportTitle}</h1>
+          {printMetaLine && <span className="report-print-subtitle">{printMetaLine}</span>}
+          <span className="report-print-subtitle">Emitido: {issuedOn}</span>
+        </div>
+      </div>
+
       <div className="dashboard-report__container">
         <header className="dashboard-report__header">
           <div className="dashboard-report__title-block">
@@ -735,12 +893,7 @@ export default function GerenciaReports() {
                 <span key={item}>{item}</span>
               ))}
             </div>
-            <h2 className="dashboard-report__title">
-              {reportType === "machinery" && "Reporte de fallas en maquinaria"}
-              {reportType === "purity" && "Reporte de pureza promedio quincenal"}
-              {reportType === "production" && "Reporte de producción total del mes"}
-              {reportType === "supplies" && "Reporte de insumos con mayor consumo por mes"}
-            </h2>
+            <h2 className="dashboard-report__title">{reportTitle}</h2>
           </div>
           <span className="dashboard-report__badge">{activeConfig.badge}</span>
         </header>

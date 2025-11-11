@@ -28,6 +28,32 @@ const formatDate = (value) => {
   return date.toLocaleDateString("es-PE")
 }
 
+const normalizeDateInput = (value) => {
+  if (!value) return null
+  const direct = new Date(value)
+  if (!Number.isNaN(direct.getTime())) {
+    direct.setHours(0, 0, 0, 0)
+    return direct
+  }
+  const fallback = new Date(`${value}T00:00:00`)
+  if (Number.isNaN(fallback.getTime())) return null
+  fallback.setHours(0, 0, 0, 0)
+  return fallback
+}
+
+const isWithinRange = (value, start, end) => {
+  if (!start && !end) return true
+  const date = normalizeDateInput(value)
+  if (!date) return false
+  if (start && date < start) return false
+  if (end) {
+    const endOfDay = new Date(end)
+    endOfDay.setHours(23, 59, 59, 999)
+    if (date > endOfDay) return false
+  }
+  return true
+}
+
 const conditionLabel = (value) => {
   if (!value) return "—"
   const map = { humedo: "Húmedo", seco: "Seco", crudo: "Crudo" }
@@ -42,7 +68,8 @@ const capitalize = (value) => {
 
 export default function PlantaReports() {
   const [reportType, setReportType] = useState("material")
-  const [filterDate, setFilterDate] = useState("")
+  const [filterStartDate, setFilterStartDate] = useState("")
+  const [filterEndDate, setFilterEndDate] = useState("")
   const [filterMaterial, setFilterMaterial] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
   const [materialData, setMaterialData] = useState([])
@@ -106,8 +133,10 @@ export default function PlantaReports() {
   const dataset = reportType === "material" ? materialData : analysisData
 
   const filteredData = useMemo(() => {
+    const start = normalizeDateInput(filterStartDate)
+    const end = normalizeDateInput(filterEndDate)
     return dataset.filter((item) => {
-      const matchesDate = filterDate ? (item.fecha ?? "").startsWith(filterDate) : true
+      const matchesDate = isWithinRange(item.fecha, start, end)
       const matchesMaterial =
         reportType === "material"
           ? filterMaterial
@@ -116,7 +145,7 @@ export default function PlantaReports() {
           : true
       return matchesDate && matchesMaterial
     })
-  }, [dataset, filterDate, filterMaterial, reportType])
+  }, [dataset, filterStartDate, filterEndDate, filterMaterial, reportType])
 
   const totalPages = Math.max(1, Math.ceil(filteredData.length / ITEMS_PER_PAGE))
   const paginatedData = filteredData.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE)
@@ -130,7 +159,8 @@ export default function PlantaReports() {
   }
 
   const resetFilters = () => {
-    setFilterDate("")
+    setFilterStartDate("")
+    setFilterEndDate("")
     setFilterMaterial("")
     setCurrentPage(1)
   }
@@ -231,12 +261,25 @@ export default function PlantaReports() {
       <div className="dashboard-report__filters">
         <span className="inline-flex items-center gap-2 dashboard-report__filter-chip">
           <Calendar size={16} />
-          <span>Fecha</span>
+          <span>Desde</span>
           <Input
             type="date"
-            value={filterDate}
+            value={filterStartDate}
             onChange={(e) => {
-              setFilterDate(e.target.value)
+              setFilterStartDate(e.target.value)
+              setCurrentPage(1)
+            }}
+            className="dashboard-form__input"
+          />
+        </span>
+        <span className="inline-flex items-center gap-2 dashboard-report__filter-chip">
+          <Calendar size={16} />
+          <span>Hasta</span>
+          <Input
+            type="date"
+            value={filterEndDate}
+            onChange={(e) => {
+              setFilterEndDate(e.target.value)
               setCurrentPage(1)
             }}
             className="dashboard-form__input"
