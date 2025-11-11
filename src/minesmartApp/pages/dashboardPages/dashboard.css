@@ -991,6 +991,99 @@ textarea.dashboard-form__input {
   font-size: 0.82rem;
 }
 
+.report-print-header {
+  display: none;
+  align-items: center;
+  gap: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.report-print-logo {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  border-radius: 1rem;
+  box-shadow: 0 10px 24px rgba(27, 40, 78, 0.14);
+}
+
+.report-print-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.report-print-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1f2c55;
+}
+
+.report-print-subtitle {
+  font-size: 0.9rem;
+  color: rgba(30, 44, 92, 0.65);
+}
+
+@media print {
+  body {
+    margin: 0;
+    background: #fff;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  .print-scope,
+  .print-scope * {
+    visibility: visible !important;
+  }
+
+  .print-scope {
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    background: #fff !important;
+  }
+
+  .dashboard-shell,
+  .dashboard-content,
+  .dashboard-report,
+  .dashboard-report__container {
+    background: #fff !important;
+    box-shadow: none !important;
+  }
+
+  .dashboard-header,
+  .dashboard-sidebar,
+  .dashboard-report__filters,
+  .dashboard-report__metrics,
+  .dashboard-report__footer,
+  .dashboard-report__badge,
+  .dashboard-hero-tabs,
+  .dashboard-report__actions,
+  .dashboard-report__pagination,
+  .dashboard-analytics-footer {
+    display: none !important;
+  }
+
+  .report-print-header {
+    display: flex !important;
+  }
+
+  .dashboard-report__table {
+    box-shadow: none !important;
+    border-radius: 0 !important;
+  }
+
+  .dashboard-card-grid {
+    grid-template-columns: 1fr !important;
+    gap: 1.25rem !important;
+  }
+}
+
 @media (max-width: 1024px) {
   .dashboard-header__inner {
     flex-direction: column;

@@ -9,10 +9,7 @@ const navigationBlueprint = [
         id: "soil",
         label: "Exploración y suelos",
         icon: Layers,
-        children: [
-          { id: "soil-data", label: "Ingreso de datos" },
-          { id: "soil-reports", label: "Reportes de análisis" },
-        ],
+        children: [{ id: "soil-data", label: "Ingreso de datos" }],
       },
       {
         id: "extraction",
@@ -20,6 +17,7 @@ const navigationBlueprint = [
         icon: Route,
         children: [
           { id: "extraction-data", label: "Registro de jornada" },
+          { id: "extraction-soil-reports", label: "Reporte de analisis" },
         ],
       },
       {
