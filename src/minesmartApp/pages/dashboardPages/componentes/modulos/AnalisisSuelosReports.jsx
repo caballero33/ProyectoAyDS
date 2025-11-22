@@ -95,6 +95,10 @@ export default function AnalisisSuelosReports() {
 
   const totalPages = Math.max(1, Math.ceil(filteredData.length / ITEMS_PER_PAGE))
   const paginatedData = filteredData.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE)
+  
+  // Para impresión, usar todos los registros filtrados
+  const [isPrinting, setIsPrinting] = useState(false)
+  const dataToDisplay = isPrinting ? filteredData : paginatedData
 
   const aptCount = filteredData.filter((item) => item.zonaApta).length
   const averagePh = filteredData.length
@@ -128,11 +132,35 @@ export default function AnalisisSuelosReports() {
       window.print()
       return
     }
-    node.classList.add("print-scope")
-    window.print()
+    
+    // Activar modo impresión para mostrar todos los registros
+    setIsPrinting(true)
+    
+    // Esperar a que React renderice los cambios antes de continuar
     setTimeout(() => {
-      node.classList.remove("print-scope")
-    }, 0)
+      // Agregar clase para impresión
+      node.classList.add("print-scope")
+      
+      // Mostrar pie de página antes de imprimir
+      const footer = node.querySelector(".report-print-footer")
+      if (footer) {
+        footer.style.display = "block"
+      }
+      
+      // Esperar un momento adicional para que los estilos se apliquen y los datos se rendericen
+      setTimeout(() => {
+        window.print()
+        
+        // Limpiar después de imprimir
+        setTimeout(() => {
+          node.classList.remove("print-scope")
+          setIsPrinting(false)
+          if (footer) {
+            footer.style.display = "none"
+          }
+        }, 100)
+      }, 200)
+    }, 100)
   }
 
   return (
@@ -199,9 +227,16 @@ export default function AnalisisSuelosReports() {
           <span className="report-print-subtitle">Emitido: {issuedOn}</span>
         </div>
       </div>
+      
+      <div className="report-print-footer" style={{ display: "none" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", fontSize: "9pt", color: "#666", padding: "0.5rem 0" }}>
+          <span style={{ fontWeight: 600 }}>AURA MINOSA - Sistema de Gestión Minera</span>
+          <span style={{ fontWeight: 600 }}>Emitido: {issuedOn}</span>
+        </div>
+      </div>
 
       <div className="dashboard-report__container">
-        <header className="dashboard-report__header">
+        <header className="dashboard-report__header print-hide-header">
           <div className="dashboard-report__title-block">
             <h2 className="dashboard-report__title">Reporte de resultados de análisis de suelo</h2>
           </div>
@@ -258,9 +293,9 @@ export default function AnalisisSuelosReports() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {paginatedData.map((row, index) => (
+                {dataToDisplay.map((row, index) => (
                   <TableRow key={row.id}>
-                    <TableCell>{(currentPage - 1) * ITEMS_PER_PAGE + index + 1}</TableCell>
+                    <TableCell>{isPrinting ? index + 1 : (currentPage - 1) * ITEMS_PER_PAGE + index + 1}</TableCell>
                     <TableCell>{row.zona || "—"}</TableCell>
                     <TableCell>{row.fecha || "—"}</TableCell>
                     <TableCell>{row.analista || "—"}</TableCell>

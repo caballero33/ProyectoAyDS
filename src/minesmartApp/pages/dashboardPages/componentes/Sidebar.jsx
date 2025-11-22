@@ -1,9 +1,11 @@
 import { ChevronDown, ClipboardList, Factory, FlaskConical, Layers, PieChart, Route, Truck } from "lucide-react"
 import { useMemo, useState } from "react"
+import { useAuth } from "../../../context/AuthContext"
 
 const navigationBlueprint = [
   {
     title: "Operaciones",
+    roles: ["admin", "operaciones"], // Solo admin y operaciones
     items: [
       {
         id: "soil",
@@ -39,6 +41,7 @@ const navigationBlueprint = [
   },
   {
     title: "Logística y soporte",
+    roles: ["admin", "logistica"], // Solo admin y logística
     items: [
       {
         id: "shipping",
@@ -56,21 +59,36 @@ const navigationBlueprint = [
   },
   {
     title: "Dirección",
+    roles: ["admin", "direccion"], // Solo admin y dirección
     items: [
       {
         id: "management",
         label: "Gerencia",
         icon: PieChart,
-        children: [{ id: "management-reports", label: "Reportes sintetizados" }],
+        children: [
+          { id: "management-reports", label: "Reportes sintetizados" },
+          { id: "sold-lots-management", label: "Confirmar ventas" },
+        ],
       },
     ],
   },
 ]
 
 export default function Sidebar({ activeModule, onSelectModule }) {
-  const [expanded, setExpanded] = useState(new Set(["soil", "extraction"]))
+  const { userRole } = useAuth()
+  const [expanded, setExpanded] = useState(new Set(["soil", "extraction", "management"]))
 
-  const navigation = useMemo(() => navigationBlueprint, [])
+  const navigation = useMemo(() => {
+    if (!userRole) return []
+
+    // Administrador ve todo
+    if (userRole === "admin") {
+      return navigationBlueprint
+    }
+
+    // Filtrar secciones según el rol del usuario
+    return navigationBlueprint.filter((section) => section.roles?.includes(userRole))
+  }, [userRole])
 
   const toggleExpand = (id) => {
     const nextExpanded = new Set(expanded)

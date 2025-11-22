@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "clean-db": "node scripts/cleanDatabase.js",
+    "generate-data": "node scripts/generateSampleData.js"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
