@@ -15,7 +15,8 @@
   box-shadow: 0 10px 26px rgba(19, 28, 58, 0.18);
   border-bottom-left-radius: 2.75rem;
   border-bottom-right-radius: 2.75rem;
-  overflow: hidden;
+  overflow: visible;
+  z-index: 100;
 }
 
 .dashboard-header::after {
@@ -32,6 +33,8 @@
   justify-content: space-between;
   gap: 2rem;
   padding: 1.25rem clamp(1.5rem, 5vw, 3.5rem);
+  position: relative;
+  z-index: 101;
 }
 
 .dashboard-identity {
@@ -1024,11 +1027,38 @@ textarea.dashboard-form__input {
 }
 
 @media print {
-  body {
-    margin: 0;
-    background: #fff;
+  /* Configuración de página A4 con márgenes profesionales */
+  @page {
+    size: A4;
+    margin: 1.5cm 1cm;
   }
 
+  /* Configuración general del cuerpo */
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    color: #000 !important;
+    font-size: 10pt !important;
+    line-height: 1.4 !important;
+    font-family: "Source Sans 3", "Segoe UI", Arial, sans-serif !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: hidden !important;
+  }
+
+  /* Asegurar que todos los elementos respeten el ancho de página */
+  * {
+    box-sizing: border-box !important;
+    max-width: 100% !important;
+  }
+
+  .print-scope * {
+    max-width: 100% !important;
+    overflow-x: hidden !important;
+  }
+
+  /* Ocultar todo excepto el contenido del reporte */
   body * {
     visibility: hidden;
   }
@@ -1038,50 +1068,868 @@ textarea.dashboard-form__input {
     visibility: visible !important;
   }
 
+  /* Asegurar explícitamente que los gráficos sean visibles - alta especificidad */
+  .print-scope svg,
+  .print-scope .recharts-wrapper,
+  .print-scope .recharts-responsive-container,
+  .print-scope .recharts-surface,
+  .print-scope .recharts-legend-wrapper,
+  .print-scope .recharts-cartesian-axis,
+  .print-scope .recharts-bar,
+  .print-scope .recharts-pie,
+  .print-scope .recharts-line,
+  .print-scope .recharts-area,
+  .print-scope .recharts-bar-rectangle,
+  .print-scope .recharts-pie-sector {
+    visibility: visible !important;
+    display: block !important;
+    opacity: 1 !important;
+  }
+
   .print-scope {
-    position: static !important;
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
     width: 100% !important;
     max-width: 100% !important;
     padding: 0 !important;
     margin: 0 !important;
     box-shadow: none !important;
     background: #fff !important;
+    color: #000 !important;
+    min-height: 100vh;
+    overflow-x: hidden !important;
+    box-sizing: border-box !important;
   }
 
-  .dashboard-shell,
-  .dashboard-content,
-  .dashboard-report,
-  .dashboard-report__container {
-    background: #fff !important;
-    box-shadow: none !important;
-  }
-
+  /* Ocultar elementos no necesarios en impresión */
   .dashboard-header,
   .dashboard-sidebar,
+  .dashboard-content__inner,
   .dashboard-report__filters,
   .dashboard-report__metrics,
   .dashboard-report__footer,
   .dashboard-report__badge,
+  .dashboard-report__header,
+  .print-hide-header,
   .dashboard-hero-tabs,
+  .dashboard-hero-block,
   .dashboard-report__actions,
   .dashboard-report__pagination,
-  .dashboard-analytics-footer {
+  .dashboard-analytics-footer,
+  .dashboard-form__actions,
+  .dashboard-form__header,
+  button,
+  input[type="button"],
+  input[type="submit"],
+  .dashboard-actions,
+  .dashboard-header__nav,
+  .dashboard-identity__brand,
+  .dashboard-header__search,
+  .dashboard-form__input[type="date"],
+  .dashboard-form__input[type="text"],
+  select,
+  .dashboard-report__filter-chip,
+  .dashboard-hero-tab,
+  .no-print {
     display: none !important;
+    visibility: hidden !important;
   }
 
+  /* Encabezado de impresión profesional */
   .report-print-header {
     display: flex !important;
+    align-items: center !important;
+    gap: 1rem !important;
+    padding: 0.5rem 0 0.75rem 0 !important;
+    border-bottom: 2px solid #1f2c55 !important;
+    margin-bottom: 1rem !important;
+    margin-top: 0 !important;
+    page-break-after: avoid;
+    page-break-inside: avoid;
+    position: relative;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
   }
 
-  .dashboard-report__table {
+  .report-print-logo {
+    width: 50px !important;
+    height: 50px !important;
+    max-width: 50px !important;
+    max-height: 50px !important;
+    object-fit: contain !important;
+    border-radius: 0.5rem !important;
+    border: 1px solid #ddd !important;
+    padding: 4px !important;
+    background: #fff !important;
+    flex-shrink: 0;
+  }
+
+  .report-print-meta {
+    flex: 1 !important;
+    min-width: 0 !important;
+    overflow: hidden !important;
+    word-wrap: break-word !important;
+  }
+
+  .report-print-title {
+    font-size: 16pt !important;
+    font-weight: 700 !important;
+    color: #1f2c55 !important;
+    margin: 0 0 0.3rem 0 !important;
+    padding: 0 !important;
+    letter-spacing: -0.02em;
+    line-height: 1.2 !important;
+    word-wrap: break-word !important;
+    overflow-wrap: break-word !important;
+    page-break-after: avoid;
+  }
+
+  .report-print-subtitle {
+    font-size: 8.5pt !important;
+    color: #555 !important;
+    margin: 0.15rem 0 !important;
+    display: block !important;
+    line-height: 1.3 !important;
+    page-break-after: avoid;
+    word-wrap: break-word !important;
+    overflow-wrap: break-word !important;
+  }
+
+  /* Contenedores de reporte */
+  .dashboard-report,
+  .dashboard-report__container {
+    background: #fff !important;
     box-shadow: none !important;
-    border-radius: 0 !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
   }
 
+  .dashboard-analytics-card {
+    background: #fff !important;
+    box-shadow: none !important;
+    border: 1px solid #e5e5e5 !important;
+    border-radius: 0 !important;
+    padding: 1rem !important;
+    margin: 0 0 1.5rem 0 !important;
+    page-break-inside: avoid;
+  }
+
+  /* Encabezado de sección en impresión */
+  .dashboard-report__header {
+    padding: 0 0 1rem 0 !important;
+    border-bottom: 2px solid #ddd !important;
+    margin-bottom: 1rem !important;
+    page-break-after: avoid;
+  }
+
+  .dashboard-report__title {
+    font-size: 18pt !important;
+    font-weight: 700 !important;
+    color: #1f2c55 !important;
+    margin: 0 !important;
+  }
+
+  /* Tablas de impresión profesionales */
+  .dashboard-report__table,
+  .dashboard-analytics-table,
+  table {
+    width: 100% !important;
+    max-width: 100% !important;
+    border-collapse: collapse !important;
+    border: 2px solid #1f2c55 !important;
+    margin: 1rem 0 1.5rem 0 !important;
+    page-break-inside: auto;
+    font-size: 7.5pt !important;
+    background: #fff !important;
+    table-layout: auto !important;
+    overflow: hidden !important;
+    word-wrap: break-word !important;
+  }
+
+  /* Encabezado de tabla */
+  .dashboard-report__table thead,
+  .dashboard-analytics-table thead,
+  table thead {
+    background: #1f2c55 !important;
+    color: #fff !important;
+    page-break-inside: avoid;
+    page-break-after: avoid;
+    display: table-header-group !important;
+  }
+
+  /* Repetir encabezado en cada página */
+  .dashboard-report__table thead tr,
+  .dashboard-analytics-table thead tr,
+  table thead tr {
+    page-break-inside: avoid;
+    page-break-after: avoid;
+  }
+
+  .dashboard-report__table th,
+  .dashboard-analytics-table th,
+  table th {
+    background: #1f2c55 !important;
+    color: #fff !important;
+    padding: 0.35rem 0.25rem !important;
+    text-align: left !important;
+    font-weight: 700 !important;
+    border: 1px solid #1a2442 !important;
+    font-size: 6.5pt !important;
+    text-transform: uppercase;
+    letter-spacing: 0.15px;
+    word-wrap: break-word !important;
+    white-space: normal !important;
+    line-height: 1.2 !important;
+  }
+
+  /* Celdas de tabla */
+  .dashboard-report__table td,
+  .dashboard-analytics-table td,
+  table td {
+    padding: 0.35rem 0.25rem !important;
+    border: 1px solid #ddd !important;
+    border-top: none !important;
+    vertical-align: middle !important;
+    font-size: 7.5pt !important;
+    line-height: 1.3;
+    word-wrap: break-word !important;
+    white-space: normal !important;
+    overflow-wrap: break-word !important;
+    word-break: break-word !important;
+  }
+
+  /* Ajustar anchos de columnas específicas para evitar desbordes */
+  .dashboard-report__table th,
+  .dashboard-report__table td,
+  .dashboard-analytics-table th,
+  .dashboard-analytics-table td {
+    word-break: break-word !important;
+    hyphens: auto !important;
+  }
+
+  /* Columnas compactas - optimizar espacio */
+  .dashboard-report__table th:nth-child(1),
+  .dashboard-report__table td:nth-child(1),
+  .dashboard-analytics-table th:nth-child(1),
+  .dashboard-analytics-table td:nth-child(1) {
+    max-width: 55px !important;
+    min-width: 45px !important;
+  }
+
+  .dashboard-report__table th:nth-child(2),
+  .dashboard-report__table td:nth-child(2) {
+    max-width: 75px !important;
+    min-width: 60px !important;
+  }
+
+  .dashboard-report__table th:nth-child(3),
+  .dashboard-report__table td:nth-child(3) {
+    max-width: 75px !important;
+    min-width: 60px !important;
+  }
+
+  .dashboard-report__table th:nth-child(4),
+  .dashboard-report__table td:nth-child(4) {
+    max-width: 90px !important;
+    min-width: 70px !important;
+  }
+
+  .dashboard-report__table th:nth-child(5),
+  .dashboard-report__table td:nth-child(5) {
+    max-width: 70px !important;
+    min-width: 60px !important;
+  }
+
+  .dashboard-report__table th:nth-child(6),
+  .dashboard-report__table td:nth-child(6) {
+    max-width: 75px !important;
+    min-width: 60px !important;
+  }
+
+  .dashboard-report__table th:nth-child(7),
+  .dashboard-report__table td:nth-child(7) {
+    max-width: 80px !important;
+    min-width: 65px !important;
+  }
+
+  /* Columna de Observaciones - dar máximo espacio y permitir wrap */
+  .dashboard-report__table th:last-child,
+  .dashboard-report__table td:last-child,
+  .dashboard-analytics-table th:last-child,
+  .dashboard-analytics-table td:last-child {
+    width: auto !important;
+    min-width: 140px !important;
+    max-width: none !important;
+    white-space: normal !important;
+    word-wrap: break-word !important;
+    overflow-wrap: break-word !important;
+    word-break: break-word !important;
+  }
+
+  /* Evitar que las celdas con mucho texto se desborden */
+  .dashboard-report__table td,
+  .dashboard-analytics-table td {
+    white-space: normal !important;
+    overflow-wrap: break-word !important;
+    word-break: break-word !important;
+  }
+
+  /* Filas de tabla */
+  .dashboard-report__table tbody tr,
+  .dashboard-analytics-table tbody tr,
+  table tbody tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+
+  /* Filas alternadas */
+  .dashboard-report__table tbody tr:nth-child(even),
+  .dashboard-analytics-table tbody tr:nth-child(even),
+  table tbody tr:nth-child(even) {
+    background: #f8f9fa !important;
+  }
+
+  /* Evitar cortes en filas */
+  .dashboard-report__table tbody tr,
+  .dashboard-analytics-table tbody tr,
+  table tbody tr {
+    break-inside: avoid;
+  }
+
+  /* Tarjetas y contenedores */
   .dashboard-card-grid {
     grid-template-columns: 1fr !important;
-    gap: 1.25rem !important;
+    gap: 1rem !important;
+    page-break-inside: avoid;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
   }
+
+  /* Contenedores principales - evitar desbordes */
+  .dashboard-report__container {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
+  }
+
+  .dashboard-report {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0.5rem !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
+  }
+
+  .dashboard-analytics-card__header {
+    padding: 0 0 0.75rem 0 !important;
+    border-bottom: 1px solid #e5e5e5 !important;
+    margin-bottom: 1rem !important;
+    page-break-after: avoid;
+  }
+
+  .dashboard-analytics-card__title {
+    font-size: 15pt !important;
+    font-weight: 700 !important;
+    color: #1f2c55 !important;
+    margin: 0 0 0.3rem 0 !important;
+  }
+
+  .dashboard-analytics-card__description {
+    font-size: 10pt !important;
+    color: #666 !important;
+    margin: 0 !important;
+  }
+
+  /* Asegurar que los gráficos sean siempre visibles en impresión - IMPORTANTE: antes de otras reglas */
+  .print-scope .recharts-responsive-container,
+  .print-scope .recharts-wrapper,
+  .print-scope .recharts-surface,
+  .print-scope svg,
+  .print-scope .recharts-legend-wrapper,
+  .print-scope .recharts-cartesian-axis,
+  .print-scope .recharts-bar,
+  .print-scope .recharts-pie,
+  .print-scope .recharts-line {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  /* Contenedores de gráficos - evitar superposiciones */
+  .print-scope .dashboard-analytics-card div[style*="height"] {
+    position: relative !important;
+    overflow: visible !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 320px !important;
+    min-height: 320px !important;
+    max-height: 320px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    clear: both !important;
+    isolation: isolate !important;
+  }
+
+  /* PieChart específico - asegurar que se muestre completamente */
+  .print-scope .recharts-pie {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  .print-scope .recharts-pie-sector {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  .print-scope .recharts-label-list {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  .print-scope .recharts-label {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  /* Asegurar que las etiquetas de texto del gráfico de pie sean visibles */
+  .print-scope svg text,
+  .print-scope svg tspan {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    fill: #333 !important;
+    font-size: 12px !important;
+    font-weight: 500 !important;
+  }
+
+  /* Asegurar que las líneas de etiqueta sean visibles */
+  .print-scope svg line {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    stroke: #666 !important;
+    stroke-width: 1 !important;
+  }
+
+  /* Asegurar que todos los paths del pie estén visibles con sus colores originales */
+  .print-scope .recharts-pie-sector path {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    /* NO forzar fill, dejar que use los colores originales de Recharts */
+    stroke: #fff !important;
+    stroke-width: 2 !important;
+  }
+
+  /* Asegurar que los sectores del pie mantengan sus colores originales */
+  .print-scope .recharts-pie-sector {
+    /* NO forzar colores, dejar que Recharts use los colores de Cell */
+  }
+
+  /* Asegurar que los Cell components mantengan sus colores en impresión */
+  .print-scope .recharts-pie-sector[fill],
+  .print-scope .recharts-pie-sector path[fill] {
+    /* Mantener el fill original del atributo fill */
+    fill: inherit !important;
+  }
+
+  /* Gráficos - tamaño correcto y sin superposición */
+  .print-scope .recharts-wrapper,
+  .print-scope svg.recharts-surface {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 320px !important;
+    min-height: 320px !important;
+    max-height: 320px !important;
+    position: relative !important;
+    margin: 0 auto !important;
+    display: block !important;
+    overflow: visible !important;
+    box-sizing: border-box !important;
+    background: transparent !important;
+    z-index: 1 !important;
+  }
+
+  /* Asegurar que los gráficos no se desborden */
+  .print-scope .dashboard-analytics-card {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: hidden !important;
+    box-sizing: border-box !important;
+    padding: 0.5rem !important;
+    margin: 0 0 1rem 0 !important;
+  }
+
+  /* Asegurar que las tablas no se superpongan con los gráficos */
+  .print-scope .dashboard-analytics-card {
+    position: relative !important;
+    page-break-inside: avoid !important;
+    margin-bottom: 1rem !important;
+    display: block !important;
+    clear: both !important;
+  }
+
+  /* Evitar que elementos se superpongan */
+  .print-scope .dashboard-card-grid > * {
+    position: relative !important;
+    page-break-inside: avoid !important;
+    margin-bottom: 1rem !important;
+    clear: both !important;
+  }
+
+  /* Contenedores de gráficos - forzar dimensiones fijas en impresión */
+  .recharts-responsive-container {
+    width: 100% !important;
+    height: 320px !important;
+    min-height: 320px !important;
+    max-height: 320px !important;
+    page-break-inside: avoid;
+    page-break-after: auto;
+    display: block !important;
+    visibility: visible !important;
+    position: relative !important;
+    overflow: visible !important;
+  }
+
+  /* Wrapper principal de Recharts */
+  .recharts-wrapper {
+    width: 100% !important;
+    height: 320px !important;
+    min-height: 320px !important;
+    max-height: 320px !important;
+    page-break-inside: avoid;
+    overflow: visible !important;
+    display: block !important;
+    visibility: visible !important;
+    position: relative !important;
+  }
+
+  /* Superficie SVG del gráfico */
+  .recharts-surface {
+    width: 100% !important;
+    height: 320px !important;
+    min-height: 320px !important;
+    max-height: 320px !important;
+    overflow: visible !important;
+    display: block !important;
+    visibility: visible !important;
+    position: relative !important;
+  }
+
+  /* SVG principal - asegurar visibilidad con dimensiones fijas */
+  .print-scope svg,
+  svg.recharts-surface,
+  .print-scope .recharts-surface,
+  .print-scope .recharts-wrapper svg,
+  .print-scope .recharts-responsive-container svg,
+  .print-scope .recharts-wrapper,
+  .print-scope .recharts-legend-wrapper {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    page-break-inside: avoid;
+    overflow: visible !important;
+    position: relative !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Asegurar que los gráficos con dimensiones fijas se muestren correctamente */
+  .print-scope .recharts-wrapper,
+  .print-scope .recharts-surface {
+    height: 320px !important;
+    min-height: 320px !important;
+    max-height: 320px !important;
+  }
+
+  /* Asegurar que los SVG tengan atributos width y height */
+  .print-scope svg[width],
+  .print-scope svg[height] {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    max-height: 320px !important;
+  }
+
+  /* Asegurar que los contenedores de gráficos no estén ocultos */
+  .print-scope .dashboard-analytics-card,
+  .print-scope .dashboard-card-grid {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  /* Asegurar que los divs contenedores de altura no estén ocultos */
+  .print-scope div[style*="height"]:has(.recharts-responsive-container),
+  .print-scope div[style*="height"]:has(svg) {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    height: 320px !important;
+    min-height: 320px !important;
+    max-height: 320px !important;
+    overflow: visible !important;
+  }
+
+  /* Ejes y líneas del gráfico */
+  .recharts-cartesian-axis,
+  .recharts-cartesian-grid,
+  .recharts-cartesian-axis-line,
+  .recharts-cartesian-axis-tick {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  /* Barras y elementos de datos */
+  .recharts-bar,
+  .recharts-pie,
+  .recharts-line,
+  .recharts-area,
+  .recharts-bar-rectangle,
+  .recharts-pie-sector {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  /* Mejorar renderizado de leyendas */
+  .recharts-legend-wrapper {
+    page-break-inside: avoid;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  /* Tooltips y overlays - ocultar en impresión ya que no funcionan */
+  .recharts-tooltip-wrapper,
+  .recharts-tooltip,
+  .recharts-default-tooltip,
+  .recharts-active-dot,
+  .recharts-reference-line {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+
+  /* Asegurar que no haya overlays o elementos superpuestos */
+  .print-scope .recharts-active-shape,
+  .print-scope .recharts-layer {
+    display: block !important;
+    visibility: visible !important;
+    position: relative !important;
+    z-index: 1 !important;
+    pointer-events: none !important;
+  }
+
+  /* Asegurar que los elementos del gráfico estén en el orden correcto */
+  .print-scope .recharts-wrapper {
+    position: relative !important;
+    z-index: 0 !important;
+  }
+
+  .print-scope svg.recharts-surface {
+    position: relative !important;
+    z-index: 0 !important;
+    background: transparent !important;
+  }
+
+  /* Asegurar que los divs contenedores de gráficos tengan altura */
+  .print-scope div[style*="height"] {
+    height: 320px !important;
+    min-height: 320px !important;
+  }
+
+  /* Asegurar visibilidad de contenedores de gráficos */
+  .print-scope .dashboard-analytics-card div[style*="height"] {
+    height: 320px !important;
+    min-height: 320px !important;
+    max-height: 320px !important;
+    display: block !important;
+    visibility: visible !important;
+    overflow: visible !important;
+  }
+
+  /* Forzar renderizado de todos los elementos SVG dentro de gráficos */
+  .print-scope .dashboard-analytics-card svg,
+  .print-scope .dashboard-card-grid svg {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    width: 100% !important;
+    height: 320px !important;
+    min-height: 320px !important;
+    max-height: 320px !important;
+    max-width: 100% !important;
+    overflow: visible !important;
+  }
+
+  /* Asegurar que los gráficos no se oculten */
+  .print-scope .dashboard-analytics-card .recharts-wrapper,
+  .print-scope .dashboard-analytics-card .recharts-responsive-container {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    width: 100% !important;
+    height: 320px !important;
+    min-height: 320px !important;
+    max-height: 320px !important;
+    overflow: visible !important;
+  }
+
+  /* Asegurar que los SVG dentro de ResponsiveContainer tengan altura fija */
+  .print-scope .recharts-responsive-container svg {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    width: 100% !important;
+    height: 320px !important;
+    min-height: 320px !important;
+    max-height: 320px !important;
+    overflow: visible !important;
+  }
+
+  /* Asegurar que los elementos internos del gráfico sean visibles */
+  .print-scope .recharts-wrapper svg {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    width: 100% !important;
+    height: 320px !important;
+    min-height: 320px !important;
+    max-height: 320px !important;
+    overflow: visible !important;
+  }
+
+  /* Texto general */
+  h1, h2, h3, h4, h5, h6 {
+    color: #1f2c55 !important;
+    page-break-after: avoid;
+    font-weight: 700;
+  }
+
+  h1 {
+    font-size: 22pt !important;
+  }
+
+  h2 {
+    font-size: 18pt !important;
+  }
+
+  h3 {
+    font-size: 14pt !important;
+  }
+
+  p {
+    margin: 0.5rem 0 !important;
+    font-size: 10pt !important;
+    line-height: 1.5;
+  }
+
+  /* Saltos de página */
+  .page-break-before {
+    page-break-before: always;
+  }
+
+  .page-break-after {
+    page-break-after: always;
+  }
+
+  .no-break {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Mejorar espaciado general */
+  .dashboard-report__container {
+    padding: 0 !important;
+  }
+
+  .dashboard-form__card {
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: transparent !important;
+  }
+
+  /* Pie de página personalizado */
+  .report-print-footer {
+    display: block !important;
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 1.5cm !important;
+    right: 1.5cm !important;
+    padding: 0.75rem 0 !important;
+    border-top: 1px solid #ddd !important;
+    background: #fff !important;
+    font-size: 8pt !important;
+    color: #666 !important;
+    text-align: center !important;
+    z-index: 1000 !important;
+  }
+
+  /* Espaciado de contenido para evitar solapamiento con pie */
+  .print-scope {
+    padding-bottom: 3cm !important;
+  }
+
+  /* Mejorar visibilidad de números de página */
+  .page-number,
+  .total-pages {
+    font-weight: 700 !important;
+    color: #1f2c55 !important;
+  }
+
+  /* Mejorar badges y etiquetas */
+  span[style*="padding"],
+  span[style*="background"],
+  .dashboard-report__badge {
+    border: 1px solid #ddd !important;
+    background: transparent !important;
+    color: #000 !important;
+  }
+
+  /* Ocultar elementos específicos */
+  .dashboard-form__header,
+  .text-sm,
+  .text-muted-foreground {
+    font-size: 9pt !important;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.profile-dropdown-menu {
+  animation: fadeIn 0.2s ease;
 }
 
 @media (max-width: 1024px) {

@@ -17,6 +17,43 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { PlusCircle } from "lucide-react"
 import { db } from "../../../../../lib/firebase"
 
+// Funciones de validación
+const validatePercentage = (value, fieldName) => {
+  if (!value || value === "") return { valid: true, error: null }
+  const numValue = Number(value)
+  if (Number.isNaN(numValue)) {
+    return { valid: false, error: `${fieldName} debe ser un número válido` }
+  }
+  if (numValue < 1 || numValue > 100) {
+    return { valid: false, error: `${fieldName} debe estar entre 1 y 100` }
+  }
+  return { valid: true, error: null }
+}
+
+const validateQuantity = (value) => {
+  if (!value || value === "") return { valid: true, error: null }
+  const numValue = Number(value)
+  if (Number.isNaN(numValue)) {
+    return { valid: false, error: "La cantidad debe ser un número válido" }
+  }
+  if (numValue < 0) {
+    return { valid: false, error: "La cantidad no puede ser negativa" }
+  }
+  return { valid: true, error: null }
+}
+
+const validateDuration = (value) => {
+  if (!value || value === "") return { valid: true, error: null }
+  const numValue = Number(value)
+  if (Number.isNaN(numValue)) {
+    return { valid: false, error: "La duración debe ser un número válido" }
+  }
+  if (numValue <= 0) {
+    return { valid: false, error: "La duración debe ser mayor a 0" }
+  }
+  return { valid: true, error: null }
+}
+
 const initialForm = {
   zona: "",
   material: "oro",
@@ -26,7 +63,7 @@ const initialForm = {
   fecha: "",
   cantidad: "",
   purezaFinal: "",
-  turno: "turno1",
+  turno: "mañana",
   lote: "",
   observaciones: "",
   tieneAveria: "no",
@@ -55,6 +92,63 @@ export default function PlantaForm() {
   const [inventory, setInventory] = useState([])
   const [loadingInventory, setLoadingInventory] = useState(true)
   const [consumoError, setConsumoError] = useState("")
+  const [availableZones, setAvailableZones] = useState([])
+  const [availableLots, setAvailableLots] = useState([])
+  const [loadingZones, setLoadingZones] = useState(true)
+  const [loadingLots, setLoadingLots] = useState(true)
+  const [errors, setErrors] = useState({
+    zona: null,
+    lote: null,
+    purezaFinal: null,
+    cantidad: null,
+    duracionFalla: null,
+  })
+
+  // Cargar zonas disponibles desde análisis de suelos
+  useEffect(() => {
+    const fetchZones = async () => {
+      setLoadingZones(true)
+      try {
+        const snapshot = await getDocs(query(collection(db, "soil_analyses"), orderBy("zona")))
+        const zones = new Set()
+        snapshot.docs.forEach((doc) => {
+          const data = doc.data()
+          if (data.zona && data.zona.trim() !== "") {
+            zones.add(data.zona.trim())
+          }
+        })
+        setAvailableZones(Array.from(zones).sort())
+      } catch (err) {
+        console.error("Error al cargar zonas:", err)
+      } finally {
+        setLoadingZones(false)
+      }
+    }
+    fetchZones()
+  }, [])
+
+  // Cargar lotes disponibles desde extracción
+  useEffect(() => {
+    const fetchLots = async () => {
+      setLoadingLots(true)
+      try {
+        const snapshot = await getDocs(query(collection(db, "extraction_records"), orderBy("lote")))
+        const lots = new Set()
+        snapshot.docs.forEach((doc) => {
+          const data = doc.data()
+          if (data.lote && data.lote.trim() !== "") {
+            lots.add(data.lote.trim())
+          }
+        })
+        setAvailableLots(Array.from(lots).sort())
+      } catch (err) {
+        console.error("Error al cargar lotes:", err)
+      } finally {
+        setLoadingLots(false)
+      }
+    }
+    fetchLots()
+  }, [])
 
   const inventoryIndex = useMemo(() => {
     return inventory.reduce((acc, item) => {
@@ -100,7 +194,30 @@ export default function PlantaForm() {
 
   const handleChange = (e) => {
     const { name, value } = e.target
-    setFormData((prev) => ({ ...prev, [name]: value }))
+
+    // Validación en tiempo real
+    if (name === "purezaFinal") {
+      if (value === "" || /^\d*\.?\d*$/.test(value)) {
+        const validation = validatePercentage(value, "La pureza")
+        setErrors((prev) => ({ ...prev, purezaFinal: validation.error }))
+        setFormData((prev) => ({ ...prev, [name]: value }))
+      }
+    } else if (name === "cantidad") {
+      if (value === "" || /^\d*\.?\d*$/.test(value)) {
+        const validation = validateQuantity(value)
+        setErrors((prev) => ({ ...prev, cantidad: validation.error }))
+        setFormData((prev) => ({ ...prev, [name]: value }))
+      }
+    } else if (name === "duracionFalla") {
+      if (value === "" || /^\d*\.?\d*$/.test(value)) {
+        const validation = validateDuration(value)
+        setErrors((prev) => ({ ...prev, duracionFalla: validation.error }))
+        setFormData((prev) => ({ ...prev, [name]: value }))
+      }
+    } else {
+      // Para otros campos, actualizar normalmente
+      setFormData((prev) => ({ ...prev, [name]: value }))
+    }
   }
 
   const handleSupplySelect = (e) => {
@@ -158,18 +275,45 @@ export default function PlantaForm() {
     setNuevoConsumo(initialConsumo)
   }
 
+  const validateForm = () => {
+    const newErrors = {
+      zona: formData.zona === "" ? "Debes seleccionar una zona registrada" : null,
+      lote: formData.lote === "" ? "Debes seleccionar un lote registrado" : null,
+      purezaFinal: formData.purezaFinal ? validatePercentage(formData.purezaFinal, "La pureza").error : null,
+      cantidad: validateQuantity(formData.cantidad).error,
+      duracionFalla:
+        formData.tieneAveria === "si" && formData.duracionFalla
+          ? validateDuration(formData.duracionFalla).error
+          : null,
+    }
+    setErrors(newErrors)
+    return !newErrors.zona && !newErrors.lote && !newErrors.purezaFinal && !newErrors.cantidad && !newErrors.duracionFalla
+  }
+
   const resetForm = () => {
     setFormData(initialForm)
     setConsumoInsumos([])
     setNuevoConsumo(initialConsumo)
     setConsumoError("")
+    setErrors({ zona: null, lote: null, purezaFinal: null, cantidad: null, duracionFalla: null })
+    setFeedback({ type: null, message: "" })
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    setSubmitting(true)
     setFeedback({ type: null, message: "" })
     setConsumoError("")
+
+    // Validar todos los campos antes de enviar
+    if (!validateForm()) {
+      setFeedback({
+        type: "error",
+        message: "Por favor corrige los errores en el formulario antes de enviar.",
+      })
+      return
+    }
+
+    setSubmitting(true)
 
     const hasInvalidConsumption = consumoInsumos.some((consumo) => {
       const supply = inventoryIndex[consumo.supplyId]
@@ -187,6 +331,34 @@ export default function PlantaForm() {
     }
 
     try {
+      // Validación final
+      if (!availableZones.includes(formData.zona)) {
+        throw new Error("La zona seleccionada no está registrada en análisis de suelos.")
+      }
+
+      if (!availableLots.includes(formData.lote)) {
+        throw new Error("El lote seleccionado no está registrado en extracción.")
+      }
+
+      const cantidadValue = Number(formData.cantidad)
+      if (cantidadValue < 0) {
+        throw new Error("La cantidad producida no puede ser negativa")
+      }
+
+      if (formData.purezaFinal) {
+        const purezaValue = Number(formData.purezaFinal)
+        if (purezaValue < 1 || purezaValue > 100) {
+          throw new Error("La pureza debe estar entre 1 y 100")
+        }
+      }
+
+      if (formData.tieneAveria === "si" && formData.duracionFalla) {
+        const duracionValue = Number(formData.duracionFalla)
+        if (duracionValue <= 0) {
+          throw new Error("La duración de la falla debe ser mayor a 0 horas")
+        }
+      }
+
       const runRef = await addDoc(collection(db, "plant_runs"), {
         zona: formData.zona,
         material: formData.material,
@@ -194,9 +366,9 @@ export default function PlantaForm() {
         condicion: formData.condicion,
         extraction_id: formData.idExtraccion,
         fecha: formData.fecha,
-        cantidad_t: Number(formData.cantidad),
-        cantidad_kg: Number(formData.cantidad),
-        pureza_final: Number(formData.purezaFinal || 0),
+        cantidad_t: cantidadValue,
+        cantidad_kg: cantidadValue,
+        pureza_final: formData.purezaFinal ? Number(formData.purezaFinal) : null,
         turno: formData.turno,
         lote: formData.lote,
         observaciones: formData.observaciones,
@@ -204,11 +376,16 @@ export default function PlantaForm() {
       })
 
       if (formData.tieneAveria === "si") {
+        const duracionValue = formData.duracionFalla ? Number(formData.duracionFalla) : 0
+        if (duracionValue <= 0) {
+          throw new Error("La duración de la falla debe ser mayor a 0 horas")
+        }
+
         await addDoc(collection(db, "plant_failures"), {
           plant_run_id: runRef.id,
           maquina: formData.maquina,
           tipo_falla: formData.tipoFalla,
-          duracion_horas: Number(formData.duracionFalla || 0),
+          duracion_horas: duracionValue,
           estado: formData.estadoFalla,
           responsable: formData.responsableFalla,
           descripcion: formData.descripcionFalla,
@@ -258,7 +435,10 @@ export default function PlantaForm() {
       resetForm()
     } catch (err) {
       console.error(err)
-      setFeedback({ type: "error", message: "No se pudo guardar el registro. Intenta nuevamente." })
+      setFeedback({
+        type: "error",
+        message: err.message || "No se pudo guardar el registro. Intenta nuevamente.",
+      })
     } finally {
       setSubmitting(false)
     }
@@ -279,17 +459,52 @@ export default function PlantaForm() {
           <div className="dashboard-form__grid">
             <div>
               <label htmlFor="zona" className="dashboard-form__label">
-                Zona
+                Zona <span style={{ color: "#f25c4a" }}>*</span>
               </label>
-              <Input
-                id="zona"
-                name="zona"
-                placeholder="Ej: Zona norte - sector A"
-                value={formData.zona}
-                onChange={handleChange}
-                required
-                className="dashboard-form__input"
-              />
+              {loadingZones ? (
+                <Input id="zona" name="zona" placeholder="Cargando zonas..." disabled className="dashboard-form__input" />
+              ) : availableZones.length === 0 ? (
+                <>
+                  <Input
+                    id="zona"
+                    name="zona"
+                    placeholder="No hay zonas registradas"
+                    disabled
+                    className="dashboard-form__input"
+                    style={{ borderColor: "#f25c4a" }}
+                  />
+                  <p style={{ fontSize: "0.75rem", color: "#f25c4a", marginTop: "0.25rem" }}>
+                    Primero debes registrar zonas en Análisis de Suelos.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <select
+                    id="zona"
+                    name="zona"
+                    value={formData.zona}
+                    onChange={handleChange}
+                    required
+                    className={`dashboard-form__input ${errors.zona ? "dashboard-form__input--error" : ""}`}
+                    style={errors.zona ? { borderColor: "#f25c4a" } : {}}
+                  >
+                    <option value="">Seleccionar zona...</option>
+                    {availableZones.map((zone) => (
+                      <option key={zone} value={zone}>
+                        {zone}
+                      </option>
+                    ))}
+                  </select>
+                  {errors.zona && (
+                    <p style={{ fontSize: "0.75rem", color: "#f25c4a", marginTop: "0.25rem" }}>{errors.zona}</p>
+                  )}
+                  {!errors.zona && formData.zona && (
+                    <p style={{ fontSize: "0.75rem", color: "rgba(30, 44, 92, 0.6)", marginTop: "0.25rem" }}>
+                      Zona registrada
+                    </p>
+                  )}
+                </>
+              )}
             </div>
             <div>
               <label htmlFor="material" className="dashboard-form__label">
@@ -375,34 +590,56 @@ export default function PlantaForm() {
           <div className="dashboard-form__grid">
             <div>
               <label htmlFor="cantidad" className="dashboard-form__label">
-                Cantidad producida (kg)
+                Cantidad producida (kg) <span style={{ color: "#f25c4a" }}>*</span>
               </label>
               <Input
                 id="cantidad"
                 name="cantidad"
                 type="number"
                 step="0.01"
+                min="0"
                 placeholder="Ej: 7.35"
                 value={formData.cantidad}
                 onChange={handleChange}
                 required
-                className="dashboard-form__input"
+                className={`dashboard-form__input ${errors.cantidad ? "dashboard-form__input--error" : ""}`}
+                style={errors.cantidad ? { borderColor: "#f25c4a" } : {}}
               />
+              {errors.cantidad && (
+                <p style={{ fontSize: "0.75rem", color: "#f25c4a", marginTop: "0.25rem" }}>{errors.cantidad}</p>
+              )}
+              {!errors.cantidad && formData.cantidad && (
+                <p style={{ fontSize: "0.75rem", color: "rgba(30, 44, 92, 0.6)", marginTop: "0.25rem" }}>
+                  Cantidad válida
+                </p>
+              )}
             </div>
             <div>
               <label htmlFor="purezaFinal" className="dashboard-form__label">
-                Pureza final (%)
+                Pureza final (%) <span style={{ color: "#f25c4a" }}>*</span>
               </label>
               <Input
                 id="purezaFinal"
                 name="purezaFinal"
                 type="number"
-                step="0.01"
-                placeholder="Ej: 96.5"
+                step="0.1"
+                min="1"
+                max="100"
+                placeholder="Ej: 96.5 (1-100)"
                 value={formData.purezaFinal}
                 onChange={handleChange}
-                className="dashboard-form__input"
+                required
+                className={`dashboard-form__input ${errors.purezaFinal ? "dashboard-form__input--error" : ""}`}
+                style={errors.purezaFinal ? { borderColor: "#f25c4a" } : {}}
               />
+              {errors.purezaFinal && (
+                <p style={{ fontSize: "0.75rem", color: "#f25c4a", marginTop: "0.25rem" }}>{errors.purezaFinal}</p>
+              )}
+              {!errors.purezaFinal && formData.purezaFinal && (
+                <p style={{ fontSize: "0.75rem", color: "rgba(30, 44, 92, 0.6)", marginTop: "0.25rem" }}>
+                  Valor válido (1-100%)
+                </p>
+              )}
             </div>
           </div>
 
@@ -411,25 +648,60 @@ export default function PlantaForm() {
               Turno
             </label>
             <select id="turno" name="turno" value={formData.turno} onChange={handleChange} className="dashboard-form__input">
-              <option value="turno1">Turno 1</option>
-              <option value="turno2">Turno 2</option>
-              <option value="turno3">Turno 3</option>
+              <option value="mañana">Mañana</option>
+              <option value="tarde">Tarde</option>
+              <option value="noche">Noche</option>
             </select>
           </div>
 
           <div>
             <label htmlFor="lote" className="dashboard-form__label">
-              Número de lote
+              Número de lote <span style={{ color: "#f25c4a" }}>*</span>
             </label>
-            <Input
-              id="lote"
-              name="lote"
-              placeholder="Ej: LOTE-001"
-              value={formData.lote}
-              onChange={handleChange}
-              required
-              className="dashboard-form__input"
-            />
+            {loadingLots ? (
+              <Input id="lote" name="lote" placeholder="Cargando lotes..." disabled className="dashboard-form__input" />
+            ) : availableLots.length === 0 ? (
+              <>
+                <Input
+                  id="lote"
+                  name="lote"
+                  placeholder="No hay lotes registrados"
+                  disabled
+                  className="dashboard-form__input"
+                  style={{ borderColor: "#f25c4a" }}
+                />
+                <p style={{ fontSize: "0.75rem", color: "#f25c4a", marginTop: "0.25rem" }}>
+                  Primero debes registrar lotes en Extracción.
+                </p>
+              </>
+            ) : (
+              <>
+                <select
+                  id="lote"
+                  name="lote"
+                  value={formData.lote}
+                  onChange={handleChange}
+                  required
+                  className={`dashboard-form__input ${errors.lote ? "dashboard-form__input--error" : ""}`}
+                  style={errors.lote ? { borderColor: "#f25c4a" } : {}}
+                >
+                  <option value="">Seleccionar lote...</option>
+                  {availableLots.map((lot) => (
+                    <option key={lot} value={lot}>
+                      {lot}
+                    </option>
+                  ))}
+                </select>
+                {errors.lote && (
+                  <p style={{ fontSize: "0.75rem", color: "#f25c4a", marginTop: "0.25rem" }}>{errors.lote}</p>
+                )}
+                {!errors.lote && formData.lote && (
+                  <p style={{ fontSize: "0.75rem", color: "rgba(30, 44, 92, 0.6)", marginTop: "0.25rem" }}>
+                    Lote registrado en extracción
+                  </p>
+                )}
+              </>
+            )}
           </div>
 
           <div>
@@ -506,18 +778,31 @@ export default function PlantaForm() {
                 <div className="dashboard-form__grid">
                   <div>
                     <label htmlFor="duracionFalla" className="dashboard-form__label">
-                      Duración (horas)
+                      Duración (horas) <span style={{ color: "#f25c4a" }}>*</span>
                     </label>
                     <Input
                       id="duracionFalla"
                       name="duracionFalla"
                       type="number"
                       step="0.1"
+                      min="0.1"
                       placeholder="Ej: 2.5"
                       value={formData.duracionFalla}
                       onChange={handleChange}
-                      className="dashboard-form__input"
+                      required={formData.tieneAveria === "si"}
+                      className={`dashboard-form__input ${errors.duracionFalla ? "dashboard-form__input--error" : ""}`}
+                      style={errors.duracionFalla ? { borderColor: "#f25c4a" } : {}}
                     />
+                    {errors.duracionFalla && (
+                      <p style={{ fontSize: "0.75rem", color: "#f25c4a", marginTop: "0.25rem" }}>
+                        {errors.duracionFalla}
+                      </p>
+                    )}
+                    {!errors.duracionFalla && formData.duracionFalla && (
+                      <p style={{ fontSize: "0.75rem", color: "rgba(30, 44, 92, 0.6)", marginTop: "0.25rem" }}>
+                        Duración válida (horas positivas)
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label htmlFor="estadoFalla" className="dashboard-form__label">

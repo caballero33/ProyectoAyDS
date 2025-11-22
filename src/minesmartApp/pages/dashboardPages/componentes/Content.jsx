@@ -8,6 +8,7 @@ import GerenciaReports from "./modulos/GerenciaReports"
 import SuppliesInventory from "./modulos/SuppliesForm"
 import ShippingForm from "./modulos/ShippingForm"
 import ShippingReports from "./modulos/ShippingReports"
+import SoldLots from "./modulos/SoldLots"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../components/ui/Card"
 import { Button } from "../../../../components/ui/Button"
 
@@ -160,6 +161,7 @@ export default function Content({ module }) {
       {module === "shipping-reports" && <ShippingReports />}
       {module === "supplies" && <SuppliesInventory />}
       {module === "management-reports" && <GerenciaReports />}
+      {module === "sold-lots-management" && <SoldLots />}
       {!module?.includes("-") && module !== "supplies" && module !== "shipping-reports" && (
         <div className="dashboard-content__inner">
           <Card flat>

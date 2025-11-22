@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { collection, getDocs, orderBy, query } from "firebase/firestore"
+import { collection, getDocs, orderBy, query, where, doc, updateDoc, serverTimestamp } from "firebase/firestore"
+import { Input } from "../../../../../components/ui/Input"
 import {
   BarChart,
   Bar,
@@ -27,12 +28,35 @@ const formatNumber = (value, opts = {}) => {
 
 const formatDate = (value) => {
   if (!value) return "—"
+  
+  // Si es un Timestamp de Firestore
+  if (value && typeof value === "object" && "toDate" in value) {
+    const date = value.toDate()
+    if (!Number.isNaN(date.getTime())) {
+      return date.toLocaleDateString("es-PE", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      })
+    }
+  }
+  
+  // Si es una cadena o número
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) {
     const safeDate = new Date(`${value}T00:00:00`)
-    return Number.isNaN(safeDate.getTime()) ? value : safeDate.toLocaleDateString("es-PE")
+    if (Number.isNaN(safeDate.getTime())) return value
+    return safeDate.toLocaleDateString("es-PE", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    })
   }
-  return date.toLocaleDateString("es-PE")
+  return date.toLocaleDateString("es-PE", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  })
 }
 
 const periodLabel = (dates) => {
@@ -70,6 +94,92 @@ const startOfDay = (value) => {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate())
 }
 
+// Funciones auxiliares para filtros
+const getQuincenaFromDate = (dateString) => {
+  if (!dateString) return null
+  try {
+    let date = new Date(dateString)
+    if (Number.isNaN(date.getTime())) {
+      const altDate = new Date(`${dateString}T00:00:00`)
+      if (Number.isNaN(altDate.getTime())) return null
+      date = altDate
+    }
+    const year = date.getFullYear()
+    const month = date.getMonth() + 1
+    const day = date.getDate()
+    const quincena = day <= 15 ? 1 : 2
+    return `${year}-${String(month).padStart(2, "0")}-Q${quincena}`
+  } catch {
+    return null
+  }
+}
+
+const getQuincenasAvailable = (runs) => {
+  const quincenas = new Set()
+  
+  // Obtener todas las quincenas desde el primer lote registrado
+  runs.forEach((run) => {
+    if (run.fecha) {
+      const quincena = getQuincenaFromDate(run.fecha)
+      if (quincena) quincenas.add(quincena)
+    }
+  })
+
+  // Si hay quincenas, ordenarlas de más reciente a más antigua
+  return Array.from(quincenas).sort((a, b) => {
+    // Comparar por año, mes y quincena (invertido para más recientes primero)
+    const [yearA, monthA, qA] = a.split("-")
+    const [yearB, monthB, qB] = b.split("-")
+    const quincenaA = parseInt(qA.replace("Q", ""))
+    const quincenaB = parseInt(qB.replace("Q", ""))
+    
+    if (yearA !== yearB) return yearB.localeCompare(yearA)
+    if (monthA !== monthB) return monthB.localeCompare(monthA)
+    return quincenaB - quincenaA
+  })
+}
+
+const getYearsAvailable = (runs) => {
+  const years = new Set()
+  runs.forEach((run) => {
+    if (run.fecha) {
+      try {
+        const date = new Date(run.fecha)
+        if (!Number.isNaN(date.getTime())) {
+          years.add(date.getFullYear())
+        } else {
+          const altDate = new Date(`${run.fecha}T00:00:00`)
+          if (!Number.isNaN(altDate.getTime())) {
+            years.add(altDate.getFullYear())
+          }
+        }
+      } catch {
+        // Ignorar fechas inválidas
+      }
+    }
+  })
+  return Array.from(years).sort().reverse() // Más recientes primero
+}
+
+const getQuincenaStartEnd = (quincenaString) => {
+  if (!quincenaString) return { start: null, end: null }
+  const [year, month, q] = quincenaString.split("-")
+  const quincena = parseInt(q.replace("Q", ""))
+  const monthNum = parseInt(month)
+  const yearNum = parseInt(year)
+
+  let startDate, endDate
+  if (quincena === 1) {
+    startDate = new Date(yearNum, monthNum - 1, 1)
+    endDate = new Date(yearNum, monthNum - 1, 15)
+  } else {
+    startDate = new Date(yearNum, monthNum - 1, 16)
+    endDate = new Date(yearNum, monthNum, 0) // Último día del mes
+  }
+
+  return { start: startDate, end: endDate }
+}
+
 export default function GerenciaReports() {
   const [reportType, setReportType] = useState("machinery")
   const [loading, setLoading] = useState(true)
@@ -80,20 +190,30 @@ export default function GerenciaReports() {
     labs: [],
     consumptions: [],
     supplies: [],
+    shipping: [],
   })
+  const [confirmingSale, setConfirmingSale] = useState(null)
   const reportRef = useRef(null)
+
+  // Filtros
+  const [filterQuincena, setFilterQuincena] = useState("") // Para pureza quincenal
+  const [filterYear, setFilterYear] = useState("") // Para producción mensual
+  const [filterFailureDateFrom, setFilterFailureDateFrom] = useState("") // Para fallas
+  const [filterFailureDateTo, setFilterFailureDateTo] = useState("") // Para fallas
+  const [isPrinting, setIsPrinting] = useState(false) // Para modo impresión
 
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true)
       setError(null)
       try {
-        const [runsSnap, failuresSnap, labsSnap, consumptionsSnap, suppliesSnap] = await Promise.all([
+        const [runsSnap, failuresSnap, labsSnap, consumptionsSnap, suppliesSnap, shippingSnap] = await Promise.all([
           getDocs(query(collection(db, "plant_runs"), orderBy("fecha", "desc"))),
           getDocs(query(collection(db, "plant_failures"), orderBy("created_at", "desc"))),
           getDocs(query(collection(db, "lab_analyses"), orderBy("fecha_envio", "desc"))),
           getDocs(query(collection(db, "plant_consumptions"), orderBy("fecha", "desc"))),
           getDocs(query(collection(db, "supplies"))),
+          getDocs(query(collection(db, "shipping_records"), orderBy("fecha", "desc"))),
         ])
 
         const runs = runsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
@@ -105,9 +225,21 @@ export default function GerenciaReports() {
         const failures = failuresSnap.docs.map((doc) => {
           const payload = doc.data()
           const relatedRun = payload.plant_run_id ? runById[payload.plant_run_id] : undefined
+          
+          // Manejar la fecha correctamente (puede ser Timestamp, string o Date)
+          let fecha = relatedRun?.fecha ?? payload.fecha ?? null
+          if (fecha && typeof fecha === "object" && "toDate" in fecha) {
+            // Si es un Timestamp de Firestore, convertir a string de fecha
+            const dateObj = fecha.toDate()
+            fecha = dateObj.toISOString().split("T")[0]
+          } else if (fecha && typeof fecha === "object" && fecha instanceof Date) {
+            // Si es un objeto Date, convertir a string
+            fecha = fecha.toISOString().split("T")[0]
+          }
+          
           return {
             id: doc.id,
-            fecha: relatedRun?.fecha ?? payload.fecha ?? null,
+            fecha: fecha,
             maquina: payload.maquina ?? "",
             tipo_falla: payload.tipo_falla ?? "",
             duracion_horas: Number(payload.duracion_horas ?? 0),
@@ -120,8 +252,9 @@ export default function GerenciaReports() {
         const labs = labsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
         const consumptions = consumptionsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
         const supplies = suppliesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+        const shipping = shippingSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
 
-        setData({ runs, failures, labs, consumptions, supplies })
+        setData({ runs, failures, labs, consumptions, supplies, shipping })
       } catch (err) {
         console.error(err)
         setError("No se pudo cargar la información gerencial.")
@@ -134,17 +267,34 @@ export default function GerenciaReports() {
   }, [])
 
   const machineryStats = useMemo(() => {
-    const durations = data.failures.map((item) => Number(item.duracion_horas || 0))
+    // Filtrar fallas por fecha
+    let filteredFailures = data.failures
+    if (filterFailureDateFrom || filterFailureDateTo) {
+      filteredFailures = data.failures.filter((item) => {
+        if (!item.fecha) return false
+        const itemDate = parseDate(item.fecha)
+        if (!itemDate) return false
+
+        const fromDate = filterFailureDateFrom ? parseDate(filterFailureDateFrom) : null
+        const toDate = filterFailureDateTo ? parseDate(filterFailureDateTo) : null
+
+        if (fromDate && itemDate < fromDate) return false
+        if (toDate && itemDate > toDate) return false
+        return true
+      })
+    }
+
+    const durations = filteredFailures.map((item) => Number(item.duracion_horas || 0))
     const avgDowntime = durations.length ? `${(durations.reduce((a, b) => a + b, 0) / durations.length).toFixed(1)} h` : "—"
-    const machines = new Set(data.failures.map((item) => item.maquina).filter(Boolean))
+    const machines = new Set(filteredFailures.map((item) => item.maquina).filter(Boolean))
 
     return {
-    summary: {
+      summary: {
         avgDowntime,
-        totalFailures: data.failures.length,
+        totalFailures: filteredFailures.length,
         affectedMachines: machines.size,
-    },
-      details: data.failures
+      },
+      details: filteredFailures
         .sort((a, b) => (a.fecha || "").localeCompare(b.fecha || ""))
         .map((item) => ({
           ...item,
@@ -152,18 +302,14 @@ export default function GerenciaReports() {
           duracionFormatted: item.duracion_horas ? `${Number(item.duracion_horas).toFixed(1)} h` : "—",
         })),
       meta: [
-        `Registros: ${data.failures.length}`,
-        periodLabel(data.failures.map((item) => item.fecha).filter(Boolean)),
+        `Registros: ${filteredFailures.length}`,
+        periodLabel(filteredFailures.map((item) => item.fecha).filter(Boolean)),
       ],
     }
-  }, [data.failures])
+  }, [data.failures, filterFailureDateFrom, filterFailureDateTo])
 
   const purityStats = useMemo(() => {
-    const today = startOfDay(new Date())
-    const startWindow = new Date(today)
-    startWindow.setDate(today.getDate() - 14)
-
-    const runsWithPurity = data.runs
+    let runsWithPurity = data.runs
       .map((run) => {
         const purity = Number(run.pureza_final ?? run.pureza ?? NaN)
         const runDate = parseDate(run.fecha)
@@ -173,10 +319,24 @@ export default function GerenciaReports() {
           runDate: runDate ? startOfDay(runDate) : null,
         }
       })
-      .filter(
-        (run) =>
-          Number.isFinite(run.pureza) && run.runDate && run.runDate >= startWindow && run.runDate <= today
-      )
+      .filter((run) => Number.isFinite(run.pureza) && run.runDate)
+
+    // Filtrar por quincena si está seleccionada
+    if (filterQuincena) {
+      const { start, end } = getQuincenaStartEnd(filterQuincena)
+      if (start && end) {
+        runsWithPurity = runsWithPurity.filter((run) => {
+          if (!run.runDate) return false
+          return run.runDate >= start && run.runDate <= end
+        })
+      }
+    } else {
+      // Si no hay filtro, mostrar últimas 2 semanas por defecto
+      const today = startOfDay(new Date())
+      const startWindow = new Date(today)
+      startWindow.setDate(today.getDate() - 14)
+      runsWithPurity = runsWithPurity.filter((run) => run.runDate && run.runDate >= startWindow && run.runDate <= today)
+    }
 
     if (runsWithPurity.length === 0) {
       return {
@@ -199,7 +359,24 @@ export default function GerenciaReports() {
       const bTime = b.runDate ? b.runDate.getTime() : 0
       return bTime - aTime
     })
-    const periodLabelStr = `Periodo: ${startWindow.toLocaleDateString("es-PE")} - ${today.toLocaleDateString("es-PE")}`
+
+    // Generar etiqueta del periodo
+    let periodLabelStr = "Periodo: sin registros"
+    if (runsInPeriod.length > 0) {
+      if (filterQuincena) {
+        const { start, end } = getQuincenaStartEnd(filterQuincena)
+        if (start && end) {
+          periodLabelStr = `Quincena: ${start.toLocaleDateString("es-PE")} - ${end.toLocaleDateString("es-PE")}`
+        }
+      } else {
+        const sortedDates = runsInPeriod.map((r) => r.runDate).filter(Boolean).sort()
+        if (sortedDates.length > 0) {
+          const start = sortedDates[0]
+          const end = sortedDates[sortedDates.length - 1]
+          periodLabelStr = `Periodo: ${start.toLocaleDateString("es-PE")} - ${end.toLocaleDateString("es-PE")}`
+        }
+      }
+    }
 
     const lotAggregation = new Map()
     runsInPeriod.forEach((run) => {
@@ -289,7 +466,7 @@ export default function GerenciaReports() {
       periodLabel: periodLabelStr,
       lotesEvaluados: chartData.length,
     }
-  }, [data.runs])
+  }, [data.runs, filterQuincena])
 
   const productionStats = useMemo(() => {
     const monthKey = (value) => {
@@ -297,8 +474,27 @@ export default function GerenciaReports() {
       return value.slice(0, 7)
     }
 
+    // Filtrar por año si está seleccionado
+    let filteredRuns = data.runs
+    if (filterYear) {
+      const yearNum = parseInt(filterYear)
+      filteredRuns = data.runs.filter((run) => {
+        if (!run.fecha) return false
+        try {
+          const date = new Date(run.fecha)
+          if (!Number.isNaN(date.getTime())) {
+            return date.getFullYear() === yearNum
+          }
+          const altDate = new Date(`${run.fecha}T00:00:00`)
+          return !Number.isNaN(altDate.getTime()) && altDate.getFullYear() === yearNum
+        } catch {
+          return false
+        }
+      })
+    }
+
     const monthly = new Map()
-    data.runs.forEach((run) => {
+    filteredRuns.forEach((run) => {
       const key = monthKey(run.fecha)
       if (!monthly.has(key)) monthly.set(key, { mes: key, cobre: 0, oro: 0, total: 0 })
       const entry = monthly.get(key)
@@ -326,10 +522,10 @@ export default function GerenciaReports() {
     const lastTotal = latestKey ? monthly.get(latestKey)?.total ?? 0 : 0
     const previousTotal = previousKey ? monthly.get(previousKey)?.total ?? 0 : 0
 
-    const goldProduction = data.runs
+    const goldProduction = filteredRuns
       .filter((run) => run.material === "oro")
       .reduce((acc, run) => acc + Number(run.cantidad_t ?? 0), 0)
-    const copperProduction = data.runs
+    const copperProduction = filteredRuns
       .filter((run) => run.material === "cobre")
       .reduce((acc, run) => acc + Number(run.cantidad_t ?? 0), 0)
 
@@ -356,12 +552,13 @@ export default function GerenciaReports() {
         total: `${formatNumber(item.total)} t`,
       })),
       meta: [
-        `Lotes registrados: ${data.runs.length}`,
-        periodLabel(data.runs.map((item) => item.fecha).filter(Boolean)),
+        `Lotes registrados: ${filteredRuns.length}`,
+        periodLabel(filteredRuns.map((item) => item.fecha).filter(Boolean)),
         variationLabel(lastTotal, previousTotal),
-      ],
+        filterYear ? `Año: ${filterYear}` : "",
+      ].filter(Boolean),
     }
-  }, [data.runs, data.supplies])
+  }, [data.runs, data.supplies, filterYear])
 
   const normalizeSupplyName = (value) => {
     if (!value) return "sin nombre"
@@ -458,6 +655,7 @@ export default function GerenciaReports() {
     { id: "purity", label: "Pureza quincenal" },
     { id: "production", label: "Producción mensual" },
     { id: "supplies", label: "Consumo de insumos" },
+    { id: "sold-lots", label: "Lotes vendidos" },
   ]
 
   const tabConfig = {
@@ -501,6 +699,28 @@ export default function GerenciaReports() {
         { label: "Promedio por lote", value: suppliesStats.summary.avgPerBatch },
       ],
     },
+    "sold-lots": {
+      meta: [
+        `Lotes despachados: ${data.shipping?.length || 0}`,
+        periodLabel(data.shipping?.map((item) => item.fecha).filter(Boolean) || []),
+      ],
+      badge: "Despacho",
+      metrics: [
+        {
+          label: "Lotes pendientes de venta",
+          value: data.shipping?.filter((item) => !item.vendido).length || 0,
+        },
+        {
+          label: "Lotes vendidos",
+          value: data.shipping?.filter((item) => item.vendido).length || 0,
+          alt: true,
+        },
+        {
+          label: "Total despachados",
+          value: data.shipping?.length || 0,
+        },
+      ],
+    },
   }
 
   const activeConfig = tabConfig[reportType]
@@ -509,6 +729,7 @@ export default function GerenciaReports() {
     purity: "Reporte de pureza promedio quincenal",
     production: "Reporte de producción total del mes",
     supplies: "Reporte de insumos con mayor consumo por mes",
+    "sold-lots": "Lotes vendidos",
   }
   const reportTitle = reportTitles[reportType]
   const issuedOn = useMemo(() => new Date().toLocaleDateString("es-PE"), [])
@@ -520,25 +741,254 @@ export default function GerenciaReports() {
       window.print()
       return
     }
+    
+    // Activar modo impresión - esto hará que los gráficos usen dimensiones fijas
+    setIsPrinting(true)
+    
+    // Mostrar pie de página antes de imprimir
+    const footer = node.querySelector(".report-print-footer")
+    if (footer) {
+      footer.style.display = "block"
+    }
+    
+    // Agregar clase para impresión
     node.classList.add("print-scope")
-    window.print()
-    setTimeout(() => {
-      node.classList.remove("print-scope")
-    }, 0)
+    
+    // Esperar a que React re-renderice los gráficos con dimensiones fijas
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        // Esperar tiempo adicional para que React complete el re-renderizado
+        setTimeout(() => {
+          // Función para verificar si todos los gráficos están completamente renderizados
+          const checkChartsRendered = () => {
+            const svgElements = node.querySelectorAll("svg")
+            if (svgElements.length === 0) return false
+            
+            let allReady = true
+            
+            svgElements.forEach((svg) => {
+              // Forzar cálculo de dimensiones
+              const svgRect = svg.getBoundingClientRect()
+              if (svgRect.width === 0 || svgRect.height === 0) {
+                allReady = false
+              }
+              
+              // Asegurar que el SVG esté visible
+              svg.style.display = "block"
+              svg.style.visibility = "visible"
+              svg.style.opacity = "1"
+              
+              // Forzar re-renderizado accediendo a todos los elementos
+              const paths = svg.querySelectorAll("path, circle, text, line, g")
+              paths.forEach((path) => {
+                void path.getBoundingClientRect()
+                // Asegurar visibilidad
+                if (path instanceof HTMLElement || path instanceof SVGElement) {
+                  path.style.display = "block"
+                  path.style.visibility = "visible"
+                  path.style.opacity = "1"
+                }
+              })
+              
+              // Verificar especialmente elementos del PieChart
+              const pieElements = svg.querySelectorAll(".recharts-pie, .recharts-pie-sector, .recharts-label, .recharts-label-list")
+              pieElements.forEach((el) => {
+                void el.getBoundingClientRect()
+                if (el instanceof HTMLElement || el instanceof SVGElement) {
+                  el.style.display = "block"
+                  el.style.visibility = "visible"
+                  el.style.opacity = "1"
+                }
+              })
+              
+              // Asegurar que todos los elementos de texto (labels) estén visibles
+              const textElements = svg.querySelectorAll("text, tspan")
+              textElements.forEach((text) => {
+                void text.getBoundingClientRect()
+                if (text instanceof SVGTextElement) {
+                  text.style.display = "block"
+                  text.style.visibility = "visible"
+                  text.style.opacity = "1"
+                  text.style.fill = "black"
+                }
+              })
+              
+              // Asegurar que las líneas de etiqueta estén visibles
+              const lines = svg.querySelectorAll("line")
+              lines.forEach((line) => {
+                void line.getBoundingClientRect()
+                if (line instanceof SVGLineElement) {
+                  line.style.display = "block"
+                  line.style.visibility = "visible"
+                  line.style.opacity = "1"
+                }
+              })
+            })
+            
+            // Verificación específica para PieChart
+            const pieSectors = node.querySelectorAll(".recharts-pie-sector")
+            if (pieSectors.length > 0) {
+              // Verificar que todos los sectores estén renderizados
+              const sectorsReady = Array.from(pieSectors).every((sector) => {
+                const rect = sector.getBoundingClientRect()
+                const path = sector.querySelector("path")
+                // Verificar que el sector tenga dimensiones y que el path exista
+                return rect.width > 0 && rect.height > 0 && path !== null
+              })
+              
+              // Verificar que las etiquetas estén presentes
+              const labels = node.querySelectorAll(".recharts-label")
+              const labelsVisible = labels.length === 0 || Array.from(labels).every((label) => {
+                const rect = label.getBoundingClientRect()
+                return rect.width > 0 && rect.height > 0
+              })
+              
+              // Verificar que haya al menos una etiqueta de texto visible
+              const textLabels = node.querySelectorAll("svg text")
+              const hasTextLabels = textLabels.length > 0
+              
+              allReady = allReady && sectorsReady && labelsVisible && hasTextLabels
+            }
+            
+            return allReady
+          }
+          
+          // Intentar verificar múltiples veces hasta que esté listo
+          let attempts = 0
+          const maxAttempts = 40 // Aumentado a 40 intentos (8 segundos)
+          
+          const checkAndPrint = () => {
+            attempts++
+            const isReady = checkChartsRendered()
+            
+            console.log(`Intento ${attempts}/${maxAttempts}, gráficos listos: ${isReady}`)
+            
+            if (isReady || attempts >= maxAttempts) {
+              // Esperar un momento adicional más largo para asegurar renderizado completo
+              const finalWait = isReady ? 1000 : 1500 // Más tiempo si no está completamente listo
+              setTimeout(() => {
+                window.print()
+                
+                // Limpiar después de imprimir
+                setTimeout(() => {
+                  setIsPrinting(false)
+                  node.classList.remove("print-scope")
+                  if (footer) {
+                    footer.style.display = "none"
+                  }
+                }, 100)
+              }, finalWait)
+            } else {
+              // Esperar un poco más y verificar de nuevo
+              setTimeout(checkAndPrint, 200)
+            }
+          }
+          
+          // Iniciar verificación después de un tiempo inicial más largo
+          setTimeout(checkAndPrint, 800) // Tiempo inicial aumentado antes de empezar a verificar
+        }, 500) // Tiempo inicial para React re-renderice
+      })
+    })
   }
 
+  const confirmSale = async (shippingId) => {
+    setConfirmingSale(shippingId)
+    try {
+      const shippingRef = doc(db, "shipping_records", shippingId)
+      await updateDoc(shippingRef, {
+        vendido: true,
+        fecha_venta: serverTimestamp(),
+        updated_at: serverTimestamp(),
+      })
+      
+      // Actualizar los datos locales
+      setData((prev) => ({
+        ...prev,
+        shipping: prev.shipping.map((item) =>
+          item.id === shippingId ? { ...item, vendido: true, fecha_venta: new Date() } : item
+        ),
+      }))
+    } catch (err) {
+      console.error(err)
+      setError("No se pudo confirmar la venta. Intenta nuevamente.")
+    } finally {
+      setConfirmingSale(null)
+    }
+  }
+
+  // Calcular quincenas y años disponibles
+  const availableQuincenas = useMemo(() => getQuincenasAvailable(data.runs), [data.runs])
+  const availableYears = useMemo(() => getYearsAvailable(data.runs), [data.runs])
+
   const renderMachinery = () => (
-    <div className="dashboard-card-grid">
-      <div className="dashboard-analytics-card">
-        <div className="dashboard-analytics-card__header">
-          <h3 className="dashboard-analytics-card__title">Detalle de fallas registradas</h3>
-          <span className="dashboard-analytics-card__description">Seguimiento cronológico por equipo afectado.</span>
+    <div className="dashboard-analytics-card">
+      <div className="dashboard-analytics-card__header">
+        <h3 className="dashboard-analytics-card__title">Detalle de fallas registradas</h3>
+        <span className="dashboard-analytics-card__description">Seguimiento cronológico por equipo afectado.</span>
+      </div>
+      
+      {/* Filtros */}
+      <div
+        style={{
+          display: "flex",
+          gap: "1rem",
+          alignItems: "flex-end",
+          marginBottom: "1.5rem",
+          padding: "1rem",
+          background: "rgba(245, 248, 251, 0.8)",
+          borderRadius: "0.75rem",
+          border: "1px solid rgba(30, 44, 92, 0.1)",
+        }}
+      >
+        <div style={{ flex: 1, maxWidth: "220px" }}>
+          <label style={{ display: "block", fontSize: "0.875rem", fontWeight: 500, marginBottom: "0.5rem", color: "rgba(30, 44, 92, 0.8)" }}>
+            Fecha desde
+          </label>
+          <Input
+            type="date"
+            value={filterFailureDateFrom}
+            onChange={(e) => setFilterFailureDateFrom(e.target.value)}
+            className="dashboard-form__input"
+            style={{ width: "100%" }}
+          />
         </div>
-        {machineryStats.details.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No hay registros de fallas en el periodo seleccionado.</p>
-        ) : (
+        <div style={{ flex: 1, maxWidth: "220px" }}>
+          <label style={{ display: "block", fontSize: "0.875rem", fontWeight: 500, marginBottom: "0.5rem", color: "rgba(30, 44, 92, 0.8)" }}>
+            Fecha hasta
+          </label>
+          <Input
+            type="date"
+            value={filterFailureDateTo}
+            onChange={(e) => setFilterFailureDateTo(e.target.value)}
+            className="dashboard-form__input"
+            style={{ width: "100%" }}
+          />
+        </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => {
+            setFilterFailureDateFrom("")
+            setFilterFailureDateTo("")
+          }}
+          style={{ 
+            height: "fit-content", 
+            marginBottom: "0",
+            padding: "0.5rem 1rem",
+            whiteSpace: "nowrap"
+          }}
+        >
+          Limpiar filtros
+        </Button>
+      </div>
+      {machineryStats.details.length === 0 ? (
+        <p className="text-sm text-muted-foreground" style={{ padding: "1rem" }}>
+          No hay registros de fallas en el periodo seleccionado.
+        </p>
+      ) : (
+        <div className="dashboard-report__table">
           <table className="dashboard-analytics-table">
-                  <thead>
+            <thead>
               <tr>
                 <th>Fecha</th>
                 <th>Máquina</th>
@@ -547,9 +997,9 @@ export default function GerenciaReports() {
                 <th>Estado</th>
                 <th>Responsable</th>
                 <th>Descripción</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+              </tr>
+            </thead>
+            <tbody>
               {machineryStats.details.map((item) => (
                 <tr key={item.id}>
                   <td>{item.fechaFormatted}</td>
@@ -559,45 +1009,131 @@ export default function GerenciaReports() {
                   <td>{item.estado || "—"}</td>
                   <td>{item.responsable || "—"}</td>
                   <td>{item.descripcion || "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-        )}
-        <div className="dashboard-analytics-footer">
-          <span>Última sincronización: {formatDate(new Date())}</span>
-          <Button variant="accent" className="inline-flex items-center gap-2" onClick={handlePrint}>
-            <Printer size={16} />
-            Imprimir
-          </Button>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
+      )}
+      <div className="dashboard-analytics-footer">
+        <span>Última sincronización: {formatDate(new Date())}</span>
+        <Button variant="accent" className="inline-flex items-center gap-2" onClick={handlePrint}>
+          <Printer size={16} />
+          Imprimir
+        </Button>
       </div>
     </div>
   )
 
-  const renderPurity = () => (
-    <>
-      <div className="dashboard-card-grid">
-        <div className="dashboard-analytics-card" style={{ minHeight: 0 }}>
-          <div className="dashboard-analytics-card__header">
-            <h3 className="dashboard-analytics-card__title">Pureza por lote</h3>
-            <span className="dashboard-analytics-card__description">Comparación de oro vs. cobre por bloque.</span>
-                </div>
-          <div style={{ height: 320 }}>
+  const renderPurity = () => {
+    // Formatear quincenas para mostrar
+    const formatQuincenaLabel = (quincenaString) => {
+      if (!quincenaString) return ""
+      const [year, month, q] = quincenaString.split("-")
+      const quincena = parseInt(q.replace("Q", ""))
+      const monthNames = [
+        "Enero",
+        "Febrero",
+        "Marzo",
+        "Abril",
+        "Mayo",
+        "Junio",
+        "Julio",
+        "Agosto",
+        "Septiembre",
+        "Octubre",
+        "Noviembre",
+        "Diciembre",
+      ]
+      const monthName = monthNames[parseInt(month) - 1]
+      const quincenaName = quincena === 1 ? "Primera quincena" : "Segunda quincena"
+      return `${quincenaName} de ${monthName} ${year}`
+    }
+
+    return (
+      <>
+        {/* Filtro de quincena */}
+        <div
+          style={{
+            display: "flex",
+            gap: "1rem",
+            alignItems: "flex-end",
+            marginBottom: "1rem",
+            padding: "1rem",
+            background: "rgba(245, 248, 251, 0.8)",
+            borderRadius: "0.75rem",
+            border: "1px solid rgba(30, 44, 92, 0.1)",
+          }}
+        >
+          <div style={{ flex: 1, maxWidth: "400px" }}>
+            <label style={{ display: "block", fontSize: "0.875rem", fontWeight: 500, marginBottom: "0.5rem", color: "rgba(30, 44, 92, 0.8)" }}>
+              Seleccionar quincena
+            </label>
+            <select
+              value={filterQuincena}
+              onChange={(e) => setFilterQuincena(e.target.value)}
+              className="dashboard-form__input"
+              style={{ width: "100%", maxWidth: "400px" }}
+            >
+              <option value="">Últimas 2 semanas (por defecto)</option>
+              {availableQuincenas.length > 0 ? (
+                availableQuincenas.map((quincena) => (
+                  <option key={quincena} value={quincena}>
+                    {formatQuincenaLabel(quincena)}
+                  </option>
+                ))
+              ) : (
+                <option value="" disabled>
+                  No hay quincenas disponibles
+                </option>
+              )}
+            </select>
+          </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setFilterQuincena("")}
+            style={{ height: "fit-content" }}
+          >
+            Limpiar filtro
+          </Button>
+        </div>
+
+        <div className="dashboard-card-grid">
+          <div className="dashboard-analytics-card" style={{ minHeight: 0 }}>
+            <div className="dashboard-analytics-card__header">
+              <h3 className="dashboard-analytics-card__title">Pureza por lote</h3>
+              <span className="dashboard-analytics-card__description">Comparación de oro vs. cobre por bloque.</span>
+            </div>
+          <div style={{ height: 320, width: "100%", overflow: "hidden", position: "relative" }}>
             {purityStats.chartData.length === 0 ? (
               <p className="text-sm text-muted-foreground p-4">No hay análisis de laboratorio registrados.</p>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={purityStats.chartData}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="lote" label={{ value: "Bloques", position: "insideBottomRight", offset: -5 }} />
-                        <YAxis label={{ value: "Pureza (%)", angle: -90, position: "insideLeft" }} />
-                        <Tooltip />
-                        <Legend />
-                        <Bar dataKey="oro" fill="#2B5E7E" name="Oro" />
-                        <Bar dataKey="cobre" fill="#EC7E3A" name="Cobre" />
-                      </BarChart>
-                    </ResponsiveContainer>
+              isPrinting ? (
+                <div style={{ width: "100%", height: "320px", display: "block", position: "relative" }}>
+                  <BarChart width={700} height={320} data={purityStats.chartData} style={{ maxWidth: "100%" }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="lote" label={{ value: "Bloques", position: "insideBottomRight", offset: -5 }} />
+                    <YAxis label={{ value: "Pureza (%)", angle: -90, position: "insideLeft" }} />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="oro" fill="#2B5E7E" name="Oro" />
+                    <Bar dataKey="cobre" fill="#EC7E3A" name="Cobre" />
+                  </BarChart>
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={purityStats.chartData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="lote" label={{ value: "Bloques", position: "insideBottomRight", offset: -5 }} />
+                    <YAxis label={{ value: "Pureza (%)", angle: -90, position: "insideLeft" }} />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="oro" fill="#2B5E7E" name="Oro" />
+                    <Bar dataKey="cobre" fill="#EC7E3A" name="Cobre" />
+                  </BarChart>
+                </ResponsiveContainer>
+              )
             )}
                   </div>
           <div className="dashboard-analytics-footer">
@@ -670,34 +1206,91 @@ export default function GerenciaReports() {
             </tbody>
           </table>
         )}
-                </div>
-    </>
-  )
+            </div>
+      </>
+    )
+  }
 
   const renderProduction = () => (
     <>
+      {/* Filtro de año */}
+      <div
+        style={{
+          display: "flex",
+          gap: "1rem",
+          alignItems: "flex-end",
+          marginBottom: "1rem",
+          padding: "1rem",
+          background: "rgba(245, 248, 251, 0.8)",
+          borderRadius: "0.75rem",
+          border: "1px solid rgba(30, 44, 92, 0.1)",
+        }}
+      >
+        <div style={{ flex: 1, maxWidth: "300px" }}>
+          <label style={{ display: "block", fontSize: "0.875rem", fontWeight: 500, marginBottom: "0.5rem", color: "rgba(30, 44, 92, 0.8)" }}>
+            Filtrar por año
+          </label>
+          <select
+            value={filterYear}
+            onChange={(e) => setFilterYear(e.target.value)}
+            className="dashboard-form__input"
+            style={{ width: "100%" }}
+          >
+            <option value="">Todos los años</option>
+            {availableYears.map((year) => (
+              <option key={year} value={year}>
+                {year}
+              </option>
+            ))}
+          </select>
+        </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => setFilterYear("")}
+          style={{ height: "fit-content" }}
+        >
+          Limpiar filtro
+        </Button>
+      </div>
+
       <div className="dashboard-card-grid">
         <div className="dashboard-analytics-card" style={{ minHeight: 0 }}>
           <div className="dashboard-analytics-card__header">
             <h3 className="dashboard-analytics-card__title">Producción total mensual</h3>
             <span className="dashboard-analytics-card__description">Desempeño por mineral y consolidado.</span>
-                </div>
-          <div style={{ height: 320 }}>
+          </div>
+          <div style={{ height: 320, width: "100%", overflow: "hidden", position: "relative" }}>
             {productionStats.chartData.length === 0 ? (
               <p className="text-sm text-muted-foreground p-4">No hay lotes de producción registrados.</p>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={productionStats.chartData}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="mes" label={{ value: "Meses", position: "insideBottomRight", offset: -5 }} />
-                  <YAxis label={{ value: "Toneladas", angle: -90, position: "insideLeft" }} />
-                        <Tooltip />
-                        <Legend />
-                        <Bar dataKey="cobre" fill="#2B5E7E" name="Cobre" />
-                        <Bar dataKey="oro" fill="#EC7E3A" name="Oro" />
-                        <Bar dataKey="total" fill="#F59E0B" name="Total" />
-                      </BarChart>
-                    </ResponsiveContainer>
+              isPrinting ? (
+                <div style={{ width: "100%", height: "320px", display: "block", position: "relative" }}>
+                  <BarChart width={700} height={320} data={productionStats.chartData} style={{ maxWidth: "100%" }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="mes" label={{ value: "Meses", position: "insideBottomRight", offset: -5 }} />
+                    <YAxis label={{ value: "Toneladas", angle: -90, position: "insideLeft" }} />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="cobre" fill="#2B5E7E" name="Cobre" />
+                    <Bar dataKey="oro" fill="#EC7E3A" name="Oro" />
+                    <Bar dataKey="total" fill="#F59E0B" name="Total" />
+                  </BarChart>
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={productionStats.chartData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="mes" label={{ value: "Meses", position: "insideBottomRight", offset: -5 }} />
+                    <YAxis label={{ value: "Toneladas", angle: -90, position: "insideLeft" }} />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="cobre" fill="#2B5E7E" name="Cobre" />
+                    <Bar dataKey="oro" fill="#EC7E3A" name="Oro" />
+                    <Bar dataKey="total" fill="#F59E0B" name="Total" />
+                  </BarChart>
+                </ResponsiveContainer>
+              )
             )}
                   </div>
         <div className="dashboard-analytics-footer">
@@ -752,28 +1345,49 @@ export default function GerenciaReports() {
             <h3 className="dashboard-analytics-card__title">Distribución de consumo</h3>
             <span className="dashboard-analytics-card__description">Participación por tipo de insumo en el periodo.</span>
                 </div>
-          <div style={{ height: 320 }}>
+          <div style={{ height: 320, width: "100%", overflow: "visible", position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
             {suppliesStats.chartData.length === 0 ? (
               <p className="text-sm text-muted-foreground p-4">No hay consumos registrados.</p>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                    data={suppliesStats.chartData}
-                          cx="50%"
-                          cy="50%"
-                    labelLine
-                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(1)}%`}
-                    outerRadius={110}
-                          dataKey="value"
-                        >
-                    {suppliesStats.chartData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.color} />
-                          ))}
-                        </Pie>
-                        <Tooltip />
-                      </PieChart>
-                    </ResponsiveContainer>
+              isPrinting ? (
+                <div style={{ width: "100%", height: "320px", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "visible" }}>
+                  <PieChart width={600} height={300} style={{ maxWidth: "100%" }}>
+                    <Pie
+                      data={suppliesStats.chartData}
+                      cx={300}
+                      cy={150}
+                      labelLine
+                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(1)}%`}
+                      outerRadius={120}
+                      dataKey="value"
+                    >
+                      {suppliesStats.chartData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={suppliesStats.chartData}
+                      cx="50%"
+                      cy="50%"
+                      labelLine
+                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(1)}%`}
+                      outerRadius={110}
+                      dataKey="value"
+                    >
+                      {suppliesStats.chartData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              )
             )}
           </div>
         </div>
@@ -811,8 +1425,8 @@ export default function GerenciaReports() {
             Imprimir
           </Button>
         </div>
-                </div>
-              </div>
+        </div>
+      </div>
       <div className="dashboard-analytics-card">
         <div className="dashboard-analytics-card__header">
           <h3 className="dashboard-analytics-card__title">Detalle de consumos</h3>
@@ -844,6 +1458,117 @@ export default function GerenciaReports() {
     </>
   )
 
+  const renderSoldLots = () => {
+    const pendingLots = data.shipping?.filter((item) => !item.vendido) || []
+    const soldLots = data.shipping?.filter((item) => item.vendido) || []
+    const allLots = [...pendingLots, ...soldLots].sort((a, b) => {
+      const dateA = a.fecha || ""
+      const dateB = b.fecha || ""
+      return dateB.localeCompare(dateA)
+    })
+
+    return (
+      <div className="dashboard-card-grid">
+        <div className="dashboard-analytics-card">
+          <div className="dashboard-analytics-card__header">
+            <h3 className="dashboard-analytics-card__title">Lotes despachados</h3>
+            <span className="dashboard-analytics-card__description">
+              Gestión de ventas y confirmación de lotes despachados.
+            </span>
+          </div>
+          {allLots.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No hay lotes despachados registrados.</p>
+          ) : (
+            <table className="dashboard-analytics-table">
+              <thead>
+                <tr>
+                  <th>Lote</th>
+                  <th>Fecha de despacho</th>
+                  <th>Producto</th>
+                  <th>Cantidad (kg)</th>
+                  <th>Pureza (%)</th>
+                  <th>Cliente</th>
+                  <th>Transportista</th>
+                  <th>Estado</th>
+                  <th>Acción</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allLots.map((item) => (
+                  <tr key={item.id} style={item.vendido ? { opacity: 0.7 } : {}}>
+                    <td>
+                      <strong>{item.lote || "—"}</strong>
+                    </td>
+                    <td>{formatDate(item.fecha)}</td>
+                    <td>{item.producto || "—"}</td>
+                    <td>{formatNumber(item.cantidad_kg || 0)}</td>
+                    <td>{formatNumber(item.pureza_final || 0)}%</td>
+                    <td>{item.cliente_destino || "—"}</td>
+                    <td>{item.transportista || "—"}</td>
+                    <td>
+                      {item.vendido ? (
+                        <span
+                          style={{
+                            padding: "0.25rem 0.75rem",
+                            borderRadius: "0.5rem",
+                            background: "rgba(34, 197, 94, 0.1)",
+                            color: "#22c55e",
+                            fontSize: "0.875rem",
+                            fontWeight: 600,
+                          }}
+                        >
+                          ✓ Vendido
+                        </span>
+                      ) : (
+                        <span
+                          style={{
+                            padding: "0.25rem 0.75rem",
+                            borderRadius: "0.5rem",
+                            background: "rgba(242, 92, 74, 0.1)",
+                            color: "#f25c4a",
+                            fontSize: "0.875rem",
+                            fontWeight: 600,
+                          }}
+                        >
+                          Pendiente
+                        </span>
+                      )}
+                    </td>
+                    <td>
+                      {!item.vendido && (
+                        <Button
+                          variant="accent"
+                          size="sm"
+                          onClick={() => confirmSale(item.id)}
+                          disabled={confirmingSale === item.id}
+                          style={{ fontSize: "0.875rem" }}
+                        >
+                          {confirmingSale === item.id ? "Confirmando..." : "Confirmar venta"}
+                        </Button>
+                      )}
+                      {item.vendido && item.fecha_venta && (
+                        <span style={{ fontSize: "0.75rem", color: "rgba(30, 44, 92, 0.6)" }}>
+                          Vendido: {formatDate(item.fecha_venta)}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <div className="dashboard-analytics-footer">
+            <span>Última sincronización: {formatDate(new Date())}</span>
+            <Button variant="accent" className="inline-flex items-center gap-2" onClick={handlePrint}>
+              <Printer size={16} />
+              Imprimir
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   const renderContent = () => {
     switch (reportType) {
       case "machinery":
@@ -854,10 +1579,57 @@ export default function GerenciaReports() {
         return renderProduction()
       case "supplies":
         return renderSupplies()
+      case "sold-lots":
+        return renderSoldLots()
       default:
         return null
     }
   }
+
+  // Resetear filtros al cambiar de pestaña
+  useEffect(() => {
+    setFilterQuincena("")
+    setFilterYear("")
+    setFilterFailureDateFrom("")
+    setFilterFailureDateTo("")
+  }, [reportType])
+
+  // Forzar re-renderizado de gráficos cuando se activa modo impresión
+  useEffect(() => {
+    if (isPrinting) {
+      // Esperar un momento para que React complete el renderizado
+      setTimeout(() => {
+        // Forzar que los ResponsiveContainer se recalculen
+        const chartContainers = reportRef.current?.querySelectorAll(".recharts-responsive-container, .recharts-wrapper, svg")
+        chartContainers?.forEach((container) => {
+          // Disparar evento de resize para forzar recálculo
+          window.dispatchEvent(new Event("resize"))
+          // Forzar reflow accediendo a dimensiones
+          void container.offsetHeight
+          void container.offsetWidth
+          void container.getBoundingClientRect()
+          
+          // Asegurar visibilidad
+          if (container instanceof HTMLElement) {
+            container.style.display = "block"
+            container.style.visibility = "visible"
+            container.style.opacity = "1"
+          }
+        })
+        
+        // Forzar renderizado de elementos específicos del PieChart
+        const pieSectors = reportRef.current?.querySelectorAll(".recharts-pie-sector, .recharts-pie, .recharts-label")
+        pieSectors?.forEach((sector) => {
+          void sector.getBoundingClientRect()
+          if (sector instanceof HTMLElement) {
+            sector.style.display = "block"
+            sector.style.visibility = "visible"
+            sector.style.opacity = "1"
+          }
+        })
+      }, 100)
+    }
+  }, [isPrinting])
 
   return (
     <section className="dashboard-report" ref={reportRef}>
@@ -874,7 +1646,7 @@ export default function GerenciaReports() {
             </button>
           ))}
         </div>
-              </div>
+      </div>
 
       <div className="report-print-header">
         <img src={COMPANY_LOGO_URL} alt="Aura Minosa" className="report-print-logo" />
@@ -882,6 +1654,13 @@ export default function GerenciaReports() {
           <h1 className="report-print-title">{reportTitle}</h1>
           {printMetaLine && <span className="report-print-subtitle">{printMetaLine}</span>}
           <span className="report-print-subtitle">Emitido: {issuedOn}</span>
+        </div>
+      </div>
+      
+      <div className="report-print-footer" style={{ display: "none" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", fontSize: "9pt", color: "#666", padding: "0.5rem 0" }}>
+          <span style={{ fontWeight: 600 }}>AURA MINOSA - Sistema de Gestión Minera</span>
+          <span style={{ fontWeight: 600 }}>Emitido: {issuedOn}</span>
         </div>
       </div>
 

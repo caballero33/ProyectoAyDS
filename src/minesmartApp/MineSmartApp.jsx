@@ -1,9 +1,12 @@
 import { RouterProvider } from "react-router"
 import { router } from "./minesmartApprouter/MinesmartAppRouter.jsx"
+import { AuthProvider } from "./context/AuthContext"
 
 const MineSmartApp = () => {
   return (
-    <RouterProvider router={router}/>
+    <AuthProvider>
+      <RouterProvider router={router} />
+    </AuthProvider>
   )
 }
 

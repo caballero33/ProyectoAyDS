@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { collection, getDocs, orderBy, query } from "firebase/firestore"
 import { Input } from "../../../../../components/ui/Input"
 import { Button } from "../../../../../components/ui/Button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../../../../components/ui/Table"
-import { Calendar, Layers, Microscope, RefreshCcw } from "lucide-react"
+import { Calendar, Layers, Microscope, Printer, RefreshCcw } from "lucide-react"
 import { db } from "../../../../../lib/firebase"
+
+const COMPANY_LOGO_URL = "https://res.cloudinary.com/dcm2dsjov/image/upload/v1762741683/images_gyxzku.png"
 
 const ITEMS_PER_PAGE = 10
 
@@ -76,6 +78,8 @@ export default function PlantaReports() {
   const [analysisData, setAnalysisData] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [isPrinting, setIsPrinting] = useState(false)
+  const reportRef = useRef(null)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -149,6 +153,59 @@ export default function PlantaReports() {
 
   const totalPages = Math.max(1, Math.ceil(filteredData.length / ITEMS_PER_PAGE))
   const paginatedData = filteredData.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE)
+  
+  // Para impresión, usar todos los registros filtrados
+  const dataToDisplay = isPrinting ? filteredData : paginatedData
+  
+  const issuedOn = useMemo(() => new Date().toLocaleDateString("es-PE"), [])
+  
+  const rangeLabel = (() => {
+    const start = filterStartDate ? new Date(filterStartDate).toLocaleDateString("es-PE") : null
+    const end = filterEndDate ? new Date(filterEndDate).toLocaleDateString("es-PE") : null
+    if (start && end) return `Rango: ${start} - ${end}`
+    if (start) return `Desde: ${start}`
+    if (end) return `Hasta: ${end}`
+    return "Todas las fechas"
+  })()
+  
+  const materialLabel = filterMaterial ? `Material: ${filterMaterial === "oro" ? "Oro" : "Cobre"}` : "Todos los materiales"
+  
+  const handlePrint = () => {
+    const node = reportRef.current
+    if (!node) {
+      window.print()
+      return
+    }
+    
+    // Activar modo impresión para mostrar todos los registros
+    setIsPrinting(true)
+    
+    // Esperar a que React renderice los cambios antes de continuar
+    setTimeout(() => {
+      // Agregar clase para impresión
+      node.classList.add("print-scope")
+      
+      // Mostrar pie de página antes de imprimir
+      const footer = node.querySelector(".report-print-footer")
+      if (footer) {
+        footer.style.display = "block"
+      }
+      
+      // Esperar un momento adicional para que los estilos se apliquen y los datos se rendericen
+      setTimeout(() => {
+        window.print()
+        
+        // Limpiar después de imprimir
+        setTimeout(() => {
+          node.classList.remove("print-scope")
+          setIsPrinting(false)
+          if (footer) {
+            footer.style.display = "none"
+          }
+        }, 100)
+      }, 200)
+    }, 100)
+  }
 
   const handlePreviousPage = () => {
     if (currentPage > 1) setCurrentPage((prev) => prev - 1)
@@ -234,7 +291,7 @@ export default function PlantaReports() {
         ]
 
   return (
-    <section className="dashboard-report">
+    <section className="dashboard-report" ref={reportRef}>
       <div className="dashboard-hero-tabs" style={{ marginBottom: "1.5rem", maxWidth: "fit-content" }}>
         <button
           type="button"
@@ -258,7 +315,25 @@ export default function PlantaReports() {
         </button>
       </div>
 
-      <div className="dashboard-report__filters">
+      <div className="report-print-header">
+        <img src={COMPANY_LOGO_URL} alt="Aura Minosa" className="report-print-logo" />
+        <div className="report-print-meta">
+          <h1 className="report-print-title">{tableConfig.title}</h1>
+          <span className="report-print-subtitle">
+            {reportType === "material" ? materialLabel : ""} · {rangeLabel}
+          </span>
+          <span className="report-print-subtitle">Emitido: {issuedOn}</span>
+        </div>
+      </div>
+      
+      <div className="report-print-footer" style={{ display: "none" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", fontSize: "9pt", color: "#666", padding: "0.5rem 0" }}>
+          <span style={{ fontWeight: 600 }}>AURA MINOSA - Sistema de Gestión Minera</span>
+          <span style={{ fontWeight: 600 }}>Emitido: {issuedOn}</span>
+        </div>
+      </div>
+
+        <div className="dashboard-report__filters">
         <span className="inline-flex items-center gap-2 dashboard-report__filter-chip">
           <Calendar size={16} />
           <span>Desde</span>
@@ -307,10 +382,16 @@ export default function PlantaReports() {
           <RefreshCcw size={16} />
           Limpiar filtros
         </Button>
+        <div className="dashboard-report__actions">
+          <Button variant="accent" className="inline-flex items-center gap-2" onClick={handlePrint}>
+            <Printer size={16} />
+            Imprimir
+          </Button>
+        </div>
       </div>
 
       <div className="dashboard-report__container">
-        <header className="dashboard-report__header">
+        <header className="dashboard-report__header print-hide-header">
           <div className="dashboard-report__title-block">
             <h2 className="dashboard-report__title">{tableConfig.title}</h2>
           </div>
@@ -350,13 +431,13 @@ export default function PlantaReports() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {paginatedData.map((row, index) => (
+                {dataToDisplay.map((row, index) => (
                   <TableRow key={row.id}>
                     {tableConfig.columns.map((column) => {
                       let value = row[column.key]
 
                       if (column.key === "__index") {
-                        value = (currentPage - 1) * ITEMS_PER_PAGE + index + 1
+                        value = isPrinting ? index + 1 : (currentPage - 1) * ITEMS_PER_PAGE + index + 1
                       } else if (column.key === "fecha") {
                         value = formatDate(row.fecha)
                       } else if (column.key === "cantidad") {
