@@ -14,8 +14,9 @@ import {
 import { Input } from "../../../../../components/ui/Input"
 import { Button } from "../../../../../components/ui/Button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../../../../components/ui/Table"
-import { PlusCircle } from "lucide-react"
+import { PlusCircle, CheckCircle2, XCircle } from "lucide-react"
 import { db } from "../../../../../lib/firebase"
+import { createNotification, generateNotificationSummary } from "../../../../../lib/notifications"
 
 // Funciones de validación
 const validatePercentage = (value, fieldName) => {
@@ -50,6 +51,20 @@ const validateDuration = (value) => {
   }
   if (numValue <= 0) {
     return { valid: false, error: "La duración debe ser mayor a 0" }
+  }
+  return { valid: true, error: null }
+}
+
+const validateExtractionId = (value) => {
+  if (!value || value === "") return { valid: true, error: null }
+  // Formato: 3 letras - año (4 dígitos) - 3 números
+  // Ejemplo: ABC-2024-123
+  const extractionIdPattern = /^[A-Za-z]{3}-\d{4}-\d{3}$/
+  if (!extractionIdPattern.test(value)) {
+    return {
+      valid: false,
+      error: "El formato debe ser: 3 letras-año-3 números (ej: ABC-2024-123)",
+    }
   }
   return { valid: true, error: null }
 }
@@ -99,9 +114,13 @@ export default function PlantaForm() {
   const [errors, setErrors] = useState({
     zona: null,
     lote: null,
+    idExtraccion: null,
     purezaFinal: null,
     cantidad: null,
     duracionFalla: null,
+  })
+  const [consumoErrors, setConsumoErrors] = useState({
+    cantidadUsada: null,
   })
 
   // Cargar zonas disponibles desde análisis de suelos
@@ -196,7 +215,20 @@ export default function PlantaForm() {
     const { name, value } = e.target
 
     // Validación en tiempo real
-    if (name === "purezaFinal") {
+    if (name === "idExtraccion") {
+      // Convertir a mayúsculas automáticamente las letras y permitir formato: LLL-YYYY-NNN
+      let formattedValue = value
+      if (value.length > 0) {
+        // Convertir letras a mayúsculas y mantener números y guiones
+        formattedValue = value
+          .toUpperCase()
+          .replace(/[^A-Z0-9-]/g, "") // Solo letras, números y guiones
+          .slice(0, 13) // Limitar a 13 caracteres (ABC-2024-123)
+      }
+      const validation = validateExtractionId(formattedValue)
+      setErrors((prev) => ({ ...prev, idExtraccion: validation.error }))
+      setFormData((prev) => ({ ...prev, [name]: formattedValue }))
+    } else if (name === "purezaFinal") {
       if (value === "" || /^\d*\.?\d*$/.test(value)) {
         const validation = validatePercentage(value, "La pureza")
         setErrors((prev) => ({ ...prev, purezaFinal: validation.error }))
@@ -229,12 +261,62 @@ export default function PlantaForm() {
       nombreInsumo: supply?.nombre ?? "",
     }))
     setConsumoError("")
+    setConsumoErrors({ cantidadUsada: null })
+    
+    // Si hay una cantidad ingresada, validar nuevamente con el nuevo insumo
+    if (nuevoConsumo.cantidadUsada) {
+      const numValue = Number(nuevoConsumo.cantidadUsada)
+      if (!Number.isNaN(numValue) && numValue > 0) {
+        const remainingStock = getRemainingStock(supplyId)
+        if (numValue > remainingStock) {
+          setConsumoErrors((prev) => ({
+            ...prev,
+            cantidadUsada: `No puedes consumir más del stock disponible (${remainingStock} ${supply?.unidad || "u."})`,
+          }))
+        } else {
+          setConsumoErrors({ cantidadUsada: null })
+        }
+      }
+    }
   }
 
   const handleConsumoChange = (e) => {
     const { name, value } = e.target
     setNuevoConsumo((prev) => ({ ...prev, [name]: value }))
     setConsumoError("")
+    
+    // Validación en tiempo real para cantidadUsada
+    if (name === "cantidadUsada") {
+      const numValue = Number(value)
+      
+      // Validar que no sea negativo
+      if (value !== "" && (Number.isNaN(numValue) || numValue < 0)) {
+        setConsumoErrors((prev) => ({
+          ...prev,
+          cantidadUsada: "La cantidad no puede ser negativa",
+        }))
+        return
+      }
+      
+      // Validar que no exceda el stock disponible
+      if (nuevoConsumo.supplyId && value !== "" && !Number.isNaN(numValue) && numValue > 0) {
+        const remainingStock = getRemainingStock(nuevoConsumo.supplyId)
+        if (numValue > remainingStock) {
+          const supply = inventoryIndex[nuevoConsumo.supplyId]
+          setConsumoErrors((prev) => ({
+            ...prev,
+            cantidadUsada: `No puedes consumir más del stock disponible (${remainingStock} ${supply?.unidad || "u."})`,
+          }))
+          return
+        }
+      }
+      
+      // Si pasa todas las validaciones, limpiar el error
+      setConsumoErrors((prev) => ({
+        ...prev,
+        cantidadUsada: null,
+      }))
+    }
   }
 
   const handleAddConsumo = (e) => {
@@ -254,17 +336,30 @@ export default function PlantaForm() {
 
     const quantityToUse = Number(nuevoConsumo.cantidadUsada)
 
-    if (Number.isNaN(quantityToUse) || quantityToUse <= 0) {
-      setConsumoError("La cantidad debe ser mayor a 0.")
+    // Validar que no sea negativo
+    if (Number.isNaN(quantityToUse) || quantityToUse < 0) {
+      setConsumoError("La cantidad no puede ser negativa.")
+      setConsumoErrors({ cantidadUsada: "La cantidad no puede ser negativa" })
       return
     }
 
+    // Validar que sea mayor a 0
+    if (quantityToUse <= 0) {
+      setConsumoError("La cantidad debe ser mayor a 0.")
+      setConsumoErrors({ cantidadUsada: "La cantidad debe ser mayor a 0" })
+      return
+    }
+
+    // Validar que no exceda el stock disponible
     const remainingStock = getRemainingStock(nuevoConsumo.supplyId)
 
     if (quantityToUse > remainingStock) {
       setConsumoError(
         `No puedes consumir ${quantityToUse} unidades. Stock disponible: ${remainingStock} ${selectedSupply.unidad || "u."}`
       )
+      setConsumoErrors({
+        cantidadUsada: `No puedes consumir más del stock disponible (${remainingStock} ${selectedSupply.unidad || "u."})`,
+      })
       return
     }
 
@@ -273,12 +368,14 @@ export default function PlantaForm() {
       { ...nuevoConsumo, cantidadUsada: quantityToUse, nombreInsumo: selectedSupply.nombre },
     ])
     setNuevoConsumo(initialConsumo)
+    setConsumoErrors({ cantidadUsada: null })
   }
 
   const validateForm = () => {
     const newErrors = {
       zona: formData.zona === "" ? "Debes seleccionar una zona registrada" : null,
       lote: formData.lote === "" ? "Debes seleccionar un lote registrado" : null,
+      idExtraccion: formData.idExtraccion === "" ? "El ID de extracción es requerido" : validateExtractionId(formData.idExtraccion).error,
       purezaFinal: formData.purezaFinal ? validatePercentage(formData.purezaFinal, "La pureza").error : null,
       cantidad: validateQuantity(formData.cantidad).error,
       duracionFalla:
@@ -287,7 +384,7 @@ export default function PlantaForm() {
           : null,
     }
     setErrors(newErrors)
-    return !newErrors.zona && !newErrors.lote && !newErrors.purezaFinal && !newErrors.cantidad && !newErrors.duracionFalla
+    return !newErrors.zona && !newErrors.lote && !newErrors.idExtraccion && !newErrors.purezaFinal && !newErrors.cantidad && !newErrors.duracionFalla
   }
 
   const resetForm = () => {
@@ -295,7 +392,7 @@ export default function PlantaForm() {
     setConsumoInsumos([])
     setNuevoConsumo(initialConsumo)
     setConsumoError("")
-    setErrors({ zona: null, lote: null, purezaFinal: null, cantidad: null, duracionFalla: null })
+    setErrors({ zona: null, lote: null, idExtraccion: null, purezaFinal: null, cantidad: null, duracionFalla: null })
     setFeedback({ type: null, message: "" })
   }
 
@@ -340,6 +437,11 @@ export default function PlantaForm() {
         throw new Error("El lote seleccionado no está registrado en extracción.")
       }
 
+      const extractionIdValidation = validateExtractionId(formData.idExtraccion)
+      if (!extractionIdValidation.valid) {
+        throw new Error(extractionIdValidation.error)
+      }
+
       const cantidadValue = Number(formData.cantidad)
       if (cantidadValue < 0) {
         throw new Error("La cantidad producida no puede ser negativa")
@@ -349,13 +451,6 @@ export default function PlantaForm() {
         const purezaValue = Number(formData.purezaFinal)
         if (purezaValue < 1 || purezaValue > 100) {
           throw new Error("La pureza debe estar entre 1 y 100")
-        }
-      }
-
-      if (formData.tieneAveria === "si" && formData.duracionFalla) {
-        const duracionValue = Number(formData.duracionFalla)
-        if (duracionValue <= 0) {
-          throw new Error("La duración de la falla debe ser mayor a 0 horas")
         }
       }
 
@@ -373,6 +468,20 @@ export default function PlantaForm() {
         lote: formData.lote,
         observaciones: formData.observaciones,
         created_at: serverTimestamp(),
+      })
+
+      // Crear notificación
+      const summary = generateNotificationSummary("plant", {
+        lote: formData.lote,
+        cantidad: cantidadValue,
+        pureza_final: formData.purezaFinal,
+      })
+      await createNotification("plant", summary, {
+        lote: formData.lote,
+        zona: formData.zona,
+        cantidad: cantidadValue,
+        pureza_final: formData.purezaFinal,
+        turno: formData.turno,
       })
 
       if (formData.tieneAveria === "si") {
@@ -431,8 +540,19 @@ export default function PlantaForm() {
         )
       }
 
-      setFeedback({ type: "success", message: "Registro de planta guardado correctamente." })
-      resetForm()
+      setFeedback({ type: "success", message: "Enviado con éxito" })
+      setErrors({ zona: null, lote: null, idExtraccion: null, purezaFinal: null, cantidad: null, duracionFalla: null })
+      setConsumoError("")
+      
+      // Limpiar formulario sin resetear el feedback
+      setFormData(initialForm)
+      setConsumoInsumos([])
+      setNuevoConsumo(initialConsumo)
+      
+      // Limpiar el mensaje de éxito después de 5 segundos
+      setTimeout(() => {
+        setFeedback({ type: null, message: "" })
+      }, 5000)
     } catch (err) {
       console.error(err)
       setFeedback({
@@ -498,9 +618,9 @@ export default function PlantaForm() {
                   {errors.zona && (
                     <p style={{ fontSize: "0.75rem", color: "#f25c4a", marginTop: "0.25rem" }}>{errors.zona}</p>
                   )}
-                  {!errors.zona && formData.zona && (
-                    <p style={{ fontSize: "0.75rem", color: "rgba(30, 44, 92, 0.6)", marginTop: "0.25rem" }}>
-                      Zona registrada
+                  {!errors.zona && formData.zona && availableZones.includes(formData.zona) && (
+                    <p style={{ fontSize: "0.75rem", color: "rgba(34, 197, 94, 0.8)", marginTop: "0.25rem" }}>
+                      ✓ Zona registrada
                     </p>
                   )}
                 </>
@@ -559,17 +679,27 @@ export default function PlantaForm() {
           <div className="dashboard-form__grid">
             <div>
               <label htmlFor="idExtraccion" className="dashboard-form__label">
-                ID de extracción
+                ID de extracción <span style={{ color: "#f25c4a" }}>*</span>
               </label>
               <Input
                 id="idExtraccion"
                 name="idExtraccion"
-                placeholder="Ej: EXT-2024-001"
+                placeholder="Ej: ABC-2024-123"
                 value={formData.idExtraccion}
                 onChange={handleChange}
                 required
-                className="dashboard-form__input"
+                maxLength={13}
+                className={`dashboard-form__input ${errors.idExtraccion ? "dashboard-form__input--error" : ""}`}
+                style={errors.idExtraccion ? { borderColor: "#f25c4a" } : {}}
               />
+              {errors.idExtraccion && (
+                <p style={{ fontSize: "0.75rem", color: "#f25c4a", marginTop: "0.25rem" }}>{errors.idExtraccion}</p>
+              )}
+              {!errors.idExtraccion && formData.idExtraccion && validateExtractionId(formData.idExtraccion).valid && (
+                <p style={{ fontSize: "0.75rem", color: "rgba(34, 197, 94, 0.8)", marginTop: "0.25rem" }}>
+                  ✓ Formato válido: 3 letras-año-3 números (ej: ABC-2024-123)
+                </p>
+              )}
             </div>
             <div>
               <label htmlFor="fecha" className="dashboard-form__label">
@@ -608,9 +738,9 @@ export default function PlantaForm() {
               {errors.cantidad && (
                 <p style={{ fontSize: "0.75rem", color: "#f25c4a", marginTop: "0.25rem" }}>{errors.cantidad}</p>
               )}
-              {!errors.cantidad && formData.cantidad && (
-                <p style={{ fontSize: "0.75rem", color: "rgba(30, 44, 92, 0.6)", marginTop: "0.25rem" }}>
-                  Cantidad válida
+              {!errors.cantidad && formData.cantidad && validateQuantity(formData.cantidad).valid && (
+                <p style={{ fontSize: "0.75rem", color: "rgba(34, 197, 94, 0.8)", marginTop: "0.25rem" }}>
+                  ✓ Cantidad válida
                 </p>
               )}
             </div>
@@ -635,9 +765,9 @@ export default function PlantaForm() {
               {errors.purezaFinal && (
                 <p style={{ fontSize: "0.75rem", color: "#f25c4a", marginTop: "0.25rem" }}>{errors.purezaFinal}</p>
               )}
-              {!errors.purezaFinal && formData.purezaFinal && (
-                <p style={{ fontSize: "0.75rem", color: "rgba(30, 44, 92, 0.6)", marginTop: "0.25rem" }}>
-                  Valor válido (1-100%)
+              {!errors.purezaFinal && formData.purezaFinal && validatePercentage(formData.purezaFinal, "La pureza").valid && (
+                <p style={{ fontSize: "0.75rem", color: "rgba(34, 197, 94, 0.8)", marginTop: "0.25rem" }}>
+                  ✓ Valor válido (1-100%)
                 </p>
               )}
             </div>
@@ -695,9 +825,9 @@ export default function PlantaForm() {
                 {errors.lote && (
                   <p style={{ fontSize: "0.75rem", color: "#f25c4a", marginTop: "0.25rem" }}>{errors.lote}</p>
                 )}
-                {!errors.lote && formData.lote && (
-                  <p style={{ fontSize: "0.75rem", color: "rgba(30, 44, 92, 0.6)", marginTop: "0.25rem" }}>
-                    Lote registrado en extracción
+                {!errors.lote && formData.lote && availableLots.includes(formData.lote) && (
+                  <p style={{ fontSize: "0.75rem", color: "rgba(34, 197, 94, 0.8)", marginTop: "0.25rem" }}>
+                    ✓ Lote registrado en extracción
                   </p>
                 )}
               </>
@@ -798,9 +928,9 @@ export default function PlantaForm() {
                         {errors.duracionFalla}
                       </p>
                     )}
-                    {!errors.duracionFalla && formData.duracionFalla && (
-                      <p style={{ fontSize: "0.75rem", color: "rgba(30, 44, 92, 0.6)", marginTop: "0.25rem" }}>
-                        Duración válida (horas positivas)
+                    {!errors.duracionFalla && formData.duracionFalla && validateDuration(formData.duracionFalla).valid && (
+                      <p style={{ fontSize: "0.75rem", color: "rgba(34, 197, 94, 0.8)", marginTop: "0.25rem" }}>
+                        ✓ Duración válida (horas positivas)
                       </p>
                     )}
                   </div>
@@ -884,7 +1014,7 @@ export default function PlantaForm() {
               </div>
               <div>
                 <label htmlFor="cantidadUsada" className="dashboard-form__label">
-                  Cantidad a consumir
+                  Cantidad a consumir <span style={{ color: "#f25c4a" }}>*</span>
                 </label>
                 <Input
                   id="cantidadUsada"
@@ -895,9 +1025,20 @@ export default function PlantaForm() {
                   placeholder="Ej: 100"
                   value={nuevoConsumo.cantidadUsada}
                   onChange={handleConsumoChange}
-                  className="dashboard-form__input"
+                  className={`dashboard-form__input ${consumoErrors.cantidadUsada ? "dashboard-form__input--error" : ""}`}
+                  style={consumoErrors.cantidadUsada ? { borderColor: "#f25c4a" } : {}}
                   disabled={loadingInventory || inventory.length === 0}
                 />
+                {consumoErrors.cantidadUsada && (
+                  <p style={{ fontSize: "0.75rem", color: "#f25c4a", marginTop: "0.25rem" }}>
+                    {consumoErrors.cantidadUsada}
+                  </p>
+                )}
+                {!consumoErrors.cantidadUsada && nuevoConsumo.cantidadUsada && nuevoConsumo.supplyId && (
+                  <p style={{ fontSize: "0.75rem", color: "rgba(34, 197, 94, 0.8)", marginTop: "0.25rem", display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                    <CheckCircle2 size={16} /> Cantidad válida
+                  </p>
+                )}
                 {nuevoConsumo.supplyId && (
                   <p className="text-xs text-muted-foreground mt-1">
                     Stock disponible: {getRemainingStock(nuevoConsumo.supplyId)}{" "}
@@ -999,9 +1140,17 @@ export default function PlantaForm() {
           </div>
 
           {feedback.message && (
-            <p className={`text-sm ${feedback.type === "error" ? "text-red-600" : "text-green-600"}`}>
-              {feedback.message}
-            </p>
+            <div
+              className={`dashboard-form__feedback ${
+                feedback.type === "success" ? "dashboard-form__feedback--success" : "dashboard-form__feedback--error"
+              }`}
+              style={{ display: "flex" }}
+            >
+              <div className="dashboard-form__feedback-icon">
+                {feedback.type === "success" ? <CheckCircle2 size={20} /> : <XCircle size={20} />}
+              </div>
+              <div className="dashboard-form__feedback-message">{feedback.message}</div>
+            </div>
           )}
         </form>
       </div>

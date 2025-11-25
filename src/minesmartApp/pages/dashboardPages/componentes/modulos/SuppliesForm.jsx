@@ -3,8 +3,22 @@ import { addDoc, collection, getDocs, orderBy, query, serverTimestamp } from "fi
 import { Input } from "../../../../../components/ui/Input"
 import { Button } from "../../../../../components/ui/Button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../../../../components/ui/Table"
-import { ClipboardList, PlusCircle, RefreshCcw } from "lucide-react"
+import { ClipboardList, PlusCircle, RefreshCcw, CheckCircle2, XCircle } from "lucide-react"
 import { db } from "../../../../../lib/firebase"
+import { createNotification, generateNotificationSummary } from "../../../../../lib/notifications"
+
+// Funciones de validación
+const validateQuantity = (value) => {
+  if (!value || value === "") return { valid: true, error: null }
+  const numValue = Number(value)
+  if (Number.isNaN(numValue)) {
+    return { valid: false, error: "La cantidad debe ser un número válido" }
+  }
+  if (numValue < 0) {
+    return { valid: false, error: "La cantidad no puede ser negativa" }
+  }
+  return { valid: true, error: null }
+}
 
 const initialSupply = {
   codigo: "",
@@ -18,7 +32,12 @@ export default function SuppliesInventory() {
   const [newSupply, setNewSupply] = useState(initialSupply)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [success, setSuccess] = useState(null)
   const [submitting, setSubmitting] = useState(false)
+  const [errors, setErrors] = useState({
+    cantidadActual: null,
+    cantidadMinima: null,
+  })
 
   useEffect(() => {
     const fetchSupplies = async () => {
@@ -50,26 +69,73 @@ export default function SuppliesInventory() {
 
   const handleInputChange = (e) => {
     const { name, value } = e.target
-    setNewSupply((prev) => ({ ...prev, [name]: value }))
+
+    // Validación en tiempo real
+    if (name === "cantidadActual" || name === "cantidadMinima") {
+      // Permitir solo números y punto decimal
+      if (value === "" || /^\d*\.?\d*$/.test(value)) {
+        const validation = validateQuantity(value)
+        setErrors((prev) => ({ ...prev, [name]: validation.error }))
+        setNewSupply((prev) => ({ ...prev, [name]: value }))
+      }
+    } else {
+      // Para otros campos, actualizar normalmente
+      setNewSupply((prev) => ({ ...prev, [name]: value }))
+    }
   }
 
   const resetForm = () => {
     setNewSupply(initialSupply)
+    setErrors({ cantidadActual: null, cantidadMinima: null })
+    setError(null)
+    setSuccess(null)
+  }
+
+  const validateForm = () => {
+    const newErrors = {
+      cantidadActual: validateQuantity(newSupply.cantidadActual).error,
+      cantidadMinima: validateQuantity(newSupply.cantidadMinima).error,
+    }
+    setErrors(newErrors)
+    return !newErrors.cantidadActual && !newErrors.cantidadMinima
   }
 
   const handleAddSupply = async (e) => {
     e.preventDefault()
-    if (!newSupply.codigo || !newSupply.nombre || !newSupply.cantidadActual || !newSupply.cantidadMinima) return
+    setError(null)
+    setSuccess(null)
+
+    // Validar campos requeridos
+    if (!newSupply.codigo || !newSupply.nombre || !newSupply.cantidadActual || !newSupply.cantidadMinima) {
+      setError("Por favor completa todos los campos requeridos.")
+      return
+    }
+
+    // Validar todos los campos antes de enviar
+    if (!validateForm()) {
+      setError("Por favor corrige los errores en el formulario antes de enviar.")
+      return
+    }
 
     setSubmitting(true)
-    setError(null)
 
     try {
+      const cantidadActualValue = Number(newSupply.cantidadActual)
+      const cantidadMinimaValue = Number(newSupply.cantidadMinima)
+
+      // Validación final antes de guardar
+      if (cantidadActualValue < 0) {
+        throw new Error("La cantidad actual no puede ser negativa")
+      }
+      if (cantidadMinimaValue < 0) {
+        throw new Error("La cantidad mínima no puede ser negativa")
+      }
+
       const payload = {
         codigo: newSupply.codigo,
         nombre: newSupply.nombre,
-        cantidad_actual: Number(newSupply.cantidadActual),
-        cantidad_minima: Number(newSupply.cantidadMinima),
+        cantidad_actual: cantidadActualValue,
+        cantidad_minima: cantidadMinimaValue,
         created_at: serverTimestamp(),
       }
 
@@ -84,10 +150,34 @@ export default function SuppliesInventory() {
           cantidadMinima: payload.cantidad_minima,
         },
       ])
-      resetForm()
+
+      // Crear notificación
+      const summary = generateNotificationSummary("supplies", {
+        nombre: payload.nombre,
+        cantidad: payload.cantidad_actual,
+      })
+      await createNotification("supplies", summary, {
+        nombre: payload.nombre,
+        codigo: payload.codigo,
+        cantidad: payload.cantidad_actual,
+        cantidad_minima: payload.cantidad_minima,
+      })
+
+      setSuccess("Enviado con éxito")
+      setError(null)
+      setErrors({ cantidadActual: null, cantidadMinima: null })
+      
+      // Limpiar formulario sin resetear el feedback
+      setNewSupply(initialSupply)
+      
+      // Limpiar el mensaje de éxito después de 5 segundos
+      setTimeout(() => {
+        setSuccess(null)
+      }, 5000)
     } catch (err) {
       console.error(err)
-      setError("No se pudo agregar el insumo. Intenta nuevamente.")
+      setError(err.message || "No se pudo agregar el insumo. Intenta nuevamente.")
+      setSuccess(null)
     } finally {
       setSubmitting(false)
     }
@@ -214,33 +304,55 @@ export default function SuppliesInventory() {
             <div className="dashboard-form__grid">
               <div>
                 <label htmlFor="cantidadActual" className="dashboard-form__label">
-                  Cantidad actual
+                  Cantidad actual <span style={{ color: "#f25c4a" }}>*</span>
                 </label>
                 <Input
                   id="cantidadActual"
                   name="cantidadActual"
                   type="number"
+                  step="0.1"
+                  min="0"
                   placeholder="Ej: 1000"
                   value={newSupply.cantidadActual}
                   onChange={handleInputChange}
                   required
-                  className="dashboard-form__input"
+                  className={`dashboard-form__input ${errors.cantidadActual ? "dashboard-form__input--error" : ""}`}
+                  style={errors.cantidadActual ? { borderColor: "#f25c4a" } : {}}
                 />
+                {errors.cantidadActual && (
+                  <p style={{ fontSize: "0.75rem", color: "#f25c4a", marginTop: "0.25rem" }}>{errors.cantidadActual}</p>
+                )}
+                {!errors.cantidadActual && newSupply.cantidadActual && validateQuantity(newSupply.cantidadActual).valid && (
+                  <p style={{ fontSize: "0.75rem", color: "rgba(34, 197, 94, 0.8)", marginTop: "0.25rem" }}>
+                    ✓ Cantidad válida
+                  </p>
+                )}
               </div>
               <div>
                 <label htmlFor="cantidadMinima" className="dashboard-form__label">
-                  Cantidad mínima
+                  Cantidad mínima <span style={{ color: "#f25c4a" }}>*</span>
                 </label>
                 <Input
                   id="cantidadMinima"
                   name="cantidadMinima"
                   type="number"
+                  step="0.1"
+                  min="0"
                   placeholder="Ej: 200"
                   value={newSupply.cantidadMinima}
                   onChange={handleInputChange}
                   required
-                  className="dashboard-form__input"
+                  className={`dashboard-form__input ${errors.cantidadMinima ? "dashboard-form__input--error" : ""}`}
+                  style={errors.cantidadMinima ? { borderColor: "#f25c4a" } : {}}
                 />
+                {errors.cantidadMinima && (
+                  <p style={{ fontSize: "0.75rem", color: "#f25c4a", marginTop: "0.25rem" }}>{errors.cantidadMinima}</p>
+                )}
+                {!errors.cantidadMinima && newSupply.cantidadMinima && validateQuantity(newSupply.cantidadMinima).valid && (
+                  <p style={{ fontSize: "0.75rem", color: "rgba(34, 197, 94, 0.8)", marginTop: "0.25rem" }}>
+                    ✓ Cantidad válida
+                  </p>
+                )}
               </div>
             </div>
 
@@ -251,7 +363,19 @@ export default function SuppliesInventory() {
               </Button>
             </div>
 
-            {error && <p className="text-sm text-red-600">{error}</p>}
+            {(success || error) && (
+              <div
+                className={`dashboard-form__feedback ${
+                  success ? "dashboard-form__feedback--success" : "dashboard-form__feedback--error"
+                }`}
+                style={{ display: "flex" }}
+              >
+                <div className="dashboard-form__feedback-icon">
+                  {success ? <CheckCircle2 size={20} /> : <XCircle size={20} />}
+                </div>
+                <div className="dashboard-form__feedback-message">{success || error}</div>
+              </div>
+            )}
           </form>
         </div>
       </section>

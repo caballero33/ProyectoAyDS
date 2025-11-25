@@ -3,6 +3,7 @@ import Header from "./componentes/Header"
 import Sidebar from "./componentes/Sidebar"
 import Content from "./componentes/Content"
 import LotTracking from "./componentes/modulos/LotTracking"
+import GestionReports from "./componentes/modulos/GestionReports"
 import "./dashboard.css"
 
 export default function DashboardPages() {
@@ -14,7 +15,7 @@ export default function DashboardPages() {
   }
 
   const handleSelectSubModule = (subModuleKey) => {
-    console.log("submodule selected:", subModuleKey)
+    // Submodule selection handled by Content component
   }
 
   const handleNavItemSelect = (navItemId) => {
@@ -32,6 +33,8 @@ export default function DashboardPages() {
         <Sidebar activeModule={activeModule} onSelectModule={handleSelectModule} />
         {activeNavItem === "operations" ? (
           <LotTracking />
+        ) : activeNavItem === "gestion" ? (
+          <GestionReports />
         ) : (
           <Content module={activeModule} onSelectSubModule={handleSelectSubModule} />
         )}

@@ -2,7 +2,9 @@ import { useState, useEffect } from "react"
 import { addDoc, collection, serverTimestamp, getDocs, query, orderBy } from "firebase/firestore"
 import { Input } from "../../../../../components/ui/Input"
 import { Button } from "../../../../../components/ui/Button"
+import { CheckCircle2, XCircle } from "lucide-react"
 import { db } from "../../../../../lib/firebase"
+import { createNotification, generateNotificationSummary } from "../../../../../lib/notifications"
 
 // Funciones de validación
 const validatePercentage = (value, fieldName) => {
@@ -179,8 +181,30 @@ export default function LabForm() {
         created_at: serverTimestamp(),
       })
 
-      setFeedback({ type: "success", message: "Análisis de laboratorio registrado correctamente." })
-      resetForm()
+      // Crear notificación
+      const summary = generateNotificationSummary("lab", {
+        lote: formData.lote,
+        pureza: purezaValue,
+        resultado: formData.resultado,
+      })
+      await createNotification("lab", summary, {
+        lote: formData.lote,
+        zona: formData.zona,
+        pureza: purezaValue,
+        humedad: humedadValue,
+        resultado: formData.resultado,
+      })
+
+      setFeedback({ type: "success", message: "Enviado con éxito" })
+      setErrors({ zona: null, lote: null, pureza: null, humedad: null })
+      
+      // Limpiar formulario sin resetear el feedback
+      setFormData(initialForm)
+      
+      // Limpiar el mensaje de éxito después de 5 segundos
+      setTimeout(() => {
+        setFeedback({ type: null, message: "" })
+      }, 5000)
     } catch (err) {
       console.error(err)
       setFeedback({
@@ -252,9 +276,9 @@ export default function LabForm() {
                   {errors.zona && (
                     <p style={{ fontSize: "0.75rem", color: "#f25c4a", marginTop: "0.25rem" }}>{errors.zona}</p>
                   )}
-                  {!errors.zona && formData.zona && (
-                    <p style={{ fontSize: "0.75rem", color: "rgba(30, 44, 92, 0.6)", marginTop: "0.25rem" }}>
-                      Zona registrada en análisis de suelos
+                  {!errors.zona && formData.zona && availableZones.includes(formData.zona) && (
+                    <p style={{ fontSize: "0.75rem", color: "rgba(34, 197, 94, 0.8)", marginTop: "0.25rem" }}>
+                      ✓ Zona registrada en análisis de suelos
                     </p>
                   )}
                 </>
@@ -307,9 +331,9 @@ export default function LabForm() {
                   {errors.lote && (
                     <p style={{ fontSize: "0.75rem", color: "#f25c4a", marginTop: "0.25rem" }}>{errors.lote}</p>
                   )}
-                  {!errors.lote && formData.lote && (
-                    <p style={{ fontSize: "0.75rem", color: "rgba(30, 44, 92, 0.6)", marginTop: "0.25rem" }}>
-                      Lote registrado en extracción
+                  {!errors.lote && formData.lote && availableLots.includes(formData.lote) && (
+                    <p style={{ fontSize: "0.75rem", color: "rgba(34, 197, 94, 0.8)", marginTop: "0.25rem" }}>
+                      ✓ Lote registrado en extracción
                     </p>
                   )}
                 </>
@@ -366,17 +390,20 @@ export default function LabForm() {
             </div>
             <div>
               <label htmlFor="resultado" className="dashboard-form__label">
-                Resultado
+                Resultado <span style={{ color: "#f25c4a" }}>*</span>
               </label>
-              <Input
+              <select
                 id="resultado"
                 name="resultado"
-                placeholder="Ej: Aprobado, Rechazado"
                 value={formData.resultado}
                 onChange={handleChange}
                 required
                 className="dashboard-form__input"
-              />
+              >
+                <option value="">Seleccionar resultado...</option>
+                <option value="Aprobado">Aprobado</option>
+                <option value="Rechazado">Rechazado</option>
+              </select>
             </div>
           </div>
 
@@ -402,9 +429,9 @@ export default function LabForm() {
               {errors.pureza && (
                 <p style={{ fontSize: "0.75rem", color: "#f25c4a", marginTop: "0.25rem" }}>{errors.pureza}</p>
               )}
-              {!errors.pureza && formData.pureza && (
-                <p style={{ fontSize: "0.75rem", color: "rgba(30, 44, 92, 0.6)", marginTop: "0.25rem" }}>
-                  Valor válido (1-100%)
+              {!errors.pureza && formData.pureza && validatePercentage(formData.pureza, "La pureza").valid && (
+                <p style={{ fontSize: "0.75rem", color: "rgba(34, 197, 94, 0.8)", marginTop: "0.25rem" }}>
+                  ✓ Valor válido (1-100%)
                 </p>
               )}
             </div>
@@ -429,9 +456,9 @@ export default function LabForm() {
               {errors.humedad && (
                 <p style={{ fontSize: "0.75rem", color: "#f25c4a", marginTop: "0.25rem" }}>{errors.humedad}</p>
               )}
-              {!errors.humedad && formData.humedad && (
-                <p style={{ fontSize: "0.75rem", color: "rgba(30, 44, 92, 0.6)", marginTop: "0.25rem" }}>
-                  Valor válido (1-100%)
+              {!errors.humedad && formData.humedad && validatePercentage(formData.humedad, "La humedad").valid && (
+                <p style={{ fontSize: "0.75rem", color: "rgba(34, 197, 94, 0.8)", marginTop: "0.25rem" }}>
+                  ✓ Valor válido (1-100%)
                 </p>
               )}
             </div>
@@ -461,9 +488,17 @@ export default function LabForm() {
             </Button>
           </div>
           {feedback.message && (
-            <p className={`text-sm ${feedback.type === "error" ? "text-red-600" : "text-green-600"}`}>
-              {feedback.message}
-            </p>
+            <div
+              className={`dashboard-form__feedback ${
+                feedback.type === "success" ? "dashboard-form__feedback--success" : "dashboard-form__feedback--error"
+              }`}
+              style={{ display: "flex" }}
+            >
+              <div className="dashboard-form__feedback-icon">
+                {feedback.type === "success" ? <CheckCircle2 size={20} /> : <XCircle size={20} />}
+              </div>
+              <div className="dashboard-form__feedback-message">{feedback.message}</div>
+            </div>
           )}
         </form>
       </div>

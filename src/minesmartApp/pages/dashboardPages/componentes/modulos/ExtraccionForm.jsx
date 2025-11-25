@@ -2,7 +2,9 @@ import { useState, useEffect } from "react"
 import { addDoc, collection, serverTimestamp, getDocs, query, orderBy } from "firebase/firestore"
 import { Input } from "../../../../../components/ui/Input"
 import { Button } from "../../../../../components/ui/Button"
+import { CheckCircle2, XCircle } from "lucide-react"
 import { db } from "../../../../../lib/firebase"
+import { createNotification, generateNotificationSummary } from "../../../../../lib/notifications"
 
 // Funciones de validación
 const validateLotNumber = (value) => {
@@ -175,8 +177,30 @@ export default function ExtraccionForm() {
         created_at: serverTimestamp(),
       })
 
-      setFeedback({ type: "success", message: "Registro de extracción guardado correctamente." })
-      resetForm()
+      // Crear notificación
+      const summary = generateNotificationSummary("extraction", {
+        lote: normalizedLot,
+        cantidad: cantidadTon,
+        zona: formData.zona,
+      })
+      await createNotification("extraction", summary, {
+        lote: normalizedLot,
+        zona: formData.zona,
+        cantidad: cantidadTon,
+        material: formData.material,
+        operador: formData.operador,
+      })
+
+      setFeedback({ type: "success", message: "Enviado con éxito" })
+      setErrors({ zona: null, lote: null, cantidad: null })
+      
+      // Limpiar formulario sin resetear el feedback
+      setFormData(initialForm)
+      
+      // Limpiar el mensaje de éxito después de 5 segundos
+      setTimeout(() => {
+        setFeedback({ type: null, message: "" })
+      }, 5000)
     } catch (err) {
       console.error(err)
       setFeedback({
@@ -248,9 +272,9 @@ export default function ExtraccionForm() {
                   {errors.zona && (
                     <p style={{ fontSize: "0.75rem", color: "#f25c4a", marginTop: "0.25rem" }}>{errors.zona}</p>
                   )}
-                  {!errors.zona && formData.zona && (
-                    <p style={{ fontSize: "0.75rem", color: "rgba(30, 44, 92, 0.6)", marginTop: "0.25rem" }}>
-                      Zona registrada en análisis de suelos
+                  {!errors.zona && formData.zona && availableZones.includes(formData.zona) && (
+                    <p style={{ fontSize: "0.75rem", color: "rgba(34, 197, 94, 0.8)", marginTop: "0.25rem" }}>
+                      ✓ Zona registrada en análisis de suelos
                     </p>
                   )}
                 </>
@@ -292,9 +316,9 @@ export default function ExtraccionForm() {
               {errors.lote && (
                 <p style={{ fontSize: "0.75rem", color: "#f25c4a", marginTop: "0.25rem" }}>{errors.lote}</p>
               )}
-              {!errors.lote && formData.lote && (
-                <p style={{ fontSize: "0.75rem", color: "rgba(30, 44, 92, 0.6)", marginTop: "0.25rem" }}>
-                  Formato válido: Letra-XXX (ej: O-123)
+              {!errors.lote && formData.lote && validateLotNumber(formData.lote).valid && (
+                <p style={{ fontSize: "0.75rem", color: "rgba(34, 197, 94, 0.8)", marginTop: "0.25rem" }}>
+                  ✓ Formato válido: Letra-XXX (ej: O-123)
                 </p>
               )}
             </div>
@@ -335,9 +359,9 @@ export default function ExtraccionForm() {
               {errors.cantidad && (
                 <p style={{ fontSize: "0.75rem", color: "#f25c4a", marginTop: "0.25rem" }}>{errors.cantidad}</p>
               )}
-              {!errors.cantidad && formData.cantidad && (
-                <p style={{ fontSize: "0.75rem", color: "rgba(30, 44, 92, 0.6)", marginTop: "0.25rem" }}>
-                  Cantidad válida
+              {!errors.cantidad && formData.cantidad && validateQuantity(formData.cantidad).valid && (
+                <p style={{ fontSize: "0.75rem", color: "rgba(34, 197, 94, 0.8)", marginTop: "0.25rem" }}>
+                  ✓ Cantidad válida
                 </p>
               )}
             </div>
@@ -400,9 +424,17 @@ export default function ExtraccionForm() {
             </Button>
           </div>
           {feedback.message && (
-            <p className={`text-sm ${feedback.type === "error" ? "text-red-600" : "text-green-600"}`}>
-              {feedback.message}
-            </p>
+            <div
+              className={`dashboard-form__feedback ${
+                feedback.type === "success" ? "dashboard-form__feedback--success" : "dashboard-form__feedback--error"
+              }`}
+              style={{ display: "flex" }}
+            >
+              <div className="dashboard-form__feedback-icon">
+                {feedback.type === "success" ? <CheckCircle2 size={20} /> : <XCircle size={20} />}
+              </div>
+              <div className="dashboard-form__feedback-message">{feedback.message}</div>
+            </div>
           )}
         </form>
       </div>

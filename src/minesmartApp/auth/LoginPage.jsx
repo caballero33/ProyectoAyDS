@@ -129,9 +129,9 @@ export default function LoginPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={isLogin ? handleLogin : handleRegister} style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+            <form onSubmit={isLogin ? handleLogin : handleRegister} style={{ display: "flex", flexDirection: "column", gap: "1.25rem", width: "100%", boxSizing: "border-box" }}>
               {!isLogin && (
-                <div>
+                <div style={{ width: "100%", boxSizing: "border-box" }}>
                   <label htmlFor="displayName" style={{ display: "block", marginBottom: "0.5rem", fontWeight: 600, fontSize: "0.875rem" }}>
                     Nombre completo
                   </label>
@@ -142,12 +142,12 @@ export default function LoginPage() {
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
                     required={!isLogin}
-                    style={{ width: "100%" }}
+                    style={{ width: "100%", maxWidth: "100%", boxSizing: "border-box" }}
                   />
                 </div>
               )}
 
-              <div>
+              <div style={{ width: "100%", boxSizing: "border-box" }}>
                 <label htmlFor="email" style={{ display: "block", marginBottom: "0.5rem", fontWeight: 600, fontSize: "0.875rem" }}>
                   Correo electrónico
                 </label>
@@ -158,11 +158,11 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  style={{ width: "100%" }}
+                  style={{ width: "100%", maxWidth: "100%", boxSizing: "border-box" }}
                 />
               </div>
 
-              <div>
+              <div style={{ width: "100%", boxSizing: "border-box" }}>
                 <label htmlFor="password" style={{ display: "block", marginBottom: "0.5rem", fontWeight: 600, fontSize: "0.875rem" }}>
                   Contraseña
                 </label>
@@ -173,13 +173,13 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  style={{ width: "100%" }}
+                  style={{ width: "100%", maxWidth: "100%", boxSizing: "border-box" }}
                 />
               </div>
 
               {!isLogin && (
                 <>
-                  <div>
+                  <div style={{ width: "100%", boxSizing: "border-box" }}>
                     <label htmlFor="confirmPassword" style={{ display: "block", marginBottom: "0.5rem", fontWeight: 600, fontSize: "0.875rem" }}>
                       Confirmar contraseña
                     </label>
@@ -190,11 +190,11 @@ export default function LoginPage() {
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       required={!isLogin}
-                      style={{ width: "100%" }}
+                      style={{ width: "100%", maxWidth: "100%", boxSizing: "border-box" }}
                     />
                   </div>
 
-                  <div>
+                  <div style={{ width: "100%", boxSizing: "border-box" }}>
                     <label htmlFor="roleCode" style={{ display: "block", marginBottom: "0.5rem", fontWeight: 600, fontSize: "0.875rem" }}>
                       Código de registro
                     </label>
@@ -208,7 +208,7 @@ export default function LoginPage() {
                         setError("")
                       }}
                       required={!isLogin}
-                      style={{ width: "100%" }}
+                      style={{ width: "100%", maxWidth: "100%", boxSizing: "border-box" }}
                     />
                     {roleCode && (
                       <p

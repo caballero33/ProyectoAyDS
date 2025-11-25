@@ -659,6 +659,82 @@ textarea.dashboard-form__input {
   filter: invert(34%) sepia(12%) saturate(620%) hue-rotate(189deg) brightness(92%) contrast(89%);
 }
 
+/* Mensajes de feedback del formulario */
+.dashboard-form__feedback {
+  display: flex !important;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1.25rem 1.5rem;
+  border-radius: 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 0;
+  animation: slideIn 0.3s ease-out;
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 60px;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dashboard-form__feedback--success {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.15), rgba(34, 197, 94, 0.08)) !important;
+  border: 2px solid rgba(34, 197, 94, 0.4) !important;
+  color: #15803d !important;
+  box-shadow: 0 6px 20px rgba(34, 197, 94, 0.25) !important;
+}
+
+.dashboard-form__feedback--error {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(239, 68, 68, 0.08)) !important;
+  border: 2px solid rgba(239, 68, 68, 0.4) !important;
+  color: #b91c1c !important;
+  box-shadow: 0 6px 20px rgba(239, 68, 68, 0.25) !important;
+}
+
+.dashboard-form__feedback-icon {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dashboard-form__feedback--success .dashboard-form__feedback-icon {
+  background: #22c55e !important;
+  color: white !important;
+  border-radius: 50%;
+  padding: 6px;
+  box-shadow: 0 2px 8px rgba(34, 197, 94, 0.3);
+}
+
+.dashboard-form__feedback--error .dashboard-form__feedback-icon {
+  background: #ef4444 !important;
+  color: white !important;
+  border-radius: 50%;
+  padding: 6px;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
+}
+
+.dashboard-form__feedback-message {
+  flex: 1;
+  line-height: 1.5;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
 .dashboard-report {
   padding: clamp(1.75rem, 4vw, 3rem);
   display: flex;
@@ -1540,9 +1616,7 @@ textarea.dashboard-form__input {
   }
 
   /* Asegurar que los sectores del pie mantengan sus colores originales */
-  .print-scope .recharts-pie-sector {
-    /* NO forzar colores, dejar que Recharts use los colores de Cell */
-  }
+  /* Los colores se manejan mediante los componentes Cell de Recharts */
 
   /* Asegurar que los Cell components mantengan sus colores en impresión */
   .print-scope .recharts-pie-sector[fill],

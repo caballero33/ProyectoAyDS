@@ -2,7 +2,9 @@ import { useState } from "react"
 import { collection, addDoc, serverTimestamp } from "firebase/firestore"
 import { Input } from "../../../../../components/ui/Input"
 import { Button } from "../../../../../components/ui/Button"
+import { CheckCircle2, XCircle } from "lucide-react"
 import { db } from "../../../../../lib/firebase"
+import { createNotification, generateNotificationSummary } from "../../../../../lib/notifications"
 
 const initialForm = {
   zona: "",
@@ -137,9 +139,30 @@ export default function AnalisisSuelosForm() {
         created_at: serverTimestamp(),
       })
 
-      setFeedback({ type: "success", message: "Análisis registrado correctamente." })
-      resetForm()
+      // Crear notificación
+      const summary = generateNotificationSummary("soil_analysis", {
+        zona: formData.zona,
+        pureza: purezaValue,
+        humedad: humedadValue,
+      })
+      await createNotification("soil_analysis", summary, {
+        zona: formData.zona,
+        fecha: formData.fecha,
+        analista: formData.analista,
+        pureza: purezaValue,
+        humedad: humedadValue,
+      })
+
+      setFeedback({ type: "success", message: "Enviado con éxito" })
       setErrors({ ph: null, pureza: null, humedad: null })
+      
+      // Limpiar formulario sin resetear el feedback
+      setFormData(initialForm)
+      
+      // Limpiar el mensaje de éxito después de 5 segundos
+      setTimeout(() => {
+        setFeedback({ type: null, message: "" })
+      }, 5000)
     } catch (err) {
       console.error(err)
       setFeedback({
@@ -246,9 +269,9 @@ export default function AnalisisSuelosForm() {
               {errors.ph && (
                 <p style={{ fontSize: "0.75rem", color: "#f25c4a", marginTop: "0.25rem" }}>{errors.ph}</p>
               )}
-              {!errors.ph && formData.ph && (
-                <p style={{ fontSize: "0.75rem", color: "rgba(30, 44, 92, 0.6)", marginTop: "0.25rem" }}>
-                  Valor válido (0-14)
+              {!errors.ph && formData.ph && validatePH(formData.ph).valid && (
+                <p style={{ fontSize: "0.75rem", color: "rgba(34, 197, 94, 0.8)", marginTop: "0.25rem" }}>
+                  ✓ Valor válido (0-14)
                 </p>
               )}
             </div>
@@ -273,9 +296,9 @@ export default function AnalisisSuelosForm() {
               {errors.pureza && (
                 <p style={{ fontSize: "0.75rem", color: "#f25c4a", marginTop: "0.25rem" }}>{errors.pureza}</p>
               )}
-              {!errors.pureza && formData.pureza && (
-                <p style={{ fontSize: "0.75rem", color: "rgba(30, 44, 92, 0.6)", marginTop: "0.25rem" }}>
-                  Valor válido (1-100%)
+              {!errors.pureza && formData.pureza && validatePercentage(formData.pureza, "La pureza").valid && (
+                <p style={{ fontSize: "0.75rem", color: "rgba(34, 197, 94, 0.8)", marginTop: "0.25rem" }}>
+                  ✓ Valor válido (1-100%)
                 </p>
               )}
             </div>
@@ -303,9 +326,9 @@ export default function AnalisisSuelosForm() {
               {errors.humedad && (
                 <p style={{ fontSize: "0.75rem", color: "#f25c4a", marginTop: "0.25rem" }}>{errors.humedad}</p>
               )}
-              {!errors.humedad && formData.humedad && (
-                <p style={{ fontSize: "0.75rem", color: "rgba(30, 44, 92, 0.6)", marginTop: "0.25rem" }}>
-                  Valor válido (1-100%)
+              {!errors.humedad && formData.humedad && validatePercentage(formData.humedad, "La humedad").valid && (
+                <p style={{ fontSize: "0.75rem", color: "rgba(34, 197, 94, 0.8)", marginTop: "0.25rem" }}>
+                  ✓ Valor válido (1-100%)
                 </p>
               )}
             </div>
@@ -326,6 +349,20 @@ export default function AnalisisSuelosForm() {
             />
           </div>
 
+          {feedback.message && (
+            <div
+              className={`dashboard-form__feedback ${
+                feedback.type === "success" ? "dashboard-form__feedback--success" : "dashboard-form__feedback--error"
+              }`}
+              style={{ display: "flex" }}
+            >
+              <div className="dashboard-form__feedback-icon">
+                {feedback.type === "success" ? <CheckCircle2 size={20} /> : <XCircle size={20} />}
+              </div>
+              <div className="dashboard-form__feedback-message">{feedback.message}</div>
+            </div>
+          )}
+
           <div className="dashboard-form__actions">
             <Button type="submit" variant="accent" disabled={submitting}>
               {submitting ? "Guardando..." : "Guardar datos"}
@@ -334,11 +371,6 @@ export default function AnalisisSuelosForm() {
               Limpiar
             </Button>
           </div>
-          {feedback.message && (
-            <p className={`text-sm ${feedback.type === "error" ? "text-red-600" : "text-green-600"}`}>
-              {feedback.message}
-            </p>
-          )}
         </form>
       </div>
     </section>

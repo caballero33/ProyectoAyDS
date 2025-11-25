@@ -861,8 +861,6 @@ export default function GerenciaReports() {
             attempts++
             const isReady = checkChartsRendered()
             
-            console.log(`Intento ${attempts}/${maxAttempts}, gráficos listos: ${isReady}`)
-            
             if (isReady || attempts >= maxAttempts) {
               // Esperar un momento adicional más largo para asegurar renderizado completo
               const finalWait = isReady ? 1000 : 1500 // Más tiempo si no está completamente listo
